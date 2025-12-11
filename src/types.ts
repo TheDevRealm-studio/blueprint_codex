@@ -112,6 +112,7 @@ export interface DocPage {
   edges: Edge[];
   markdownBody: string; // For Document View
   viewMode: 'document' | 'canvas';
+  viewCount?: number;
   metadata?: {
     engineVersion?: string;
     status?: 'draft' | 'review' | 'verified' | 'deprecated';

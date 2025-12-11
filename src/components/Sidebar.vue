@@ -4,12 +4,14 @@ import { storeToRefs } from 'pinia';
 import { ref, onMounted } from 'vue';
 import FileSystemItem from './FileSystemItem.vue';
 import InputModal from './InputModal.vue';
+import SettingsModal from './SettingsModal.vue';
 import type { FileSystemNode, Asset } from '../types';
 import { storage } from '../services/storage';
 
 const store = useProjectStore();
 const { project, projects, currentProjectId } = storeToRefs(store);
 const showProjectSelect = ref(false);
+const showSettings = ref(false);
 
 // Tabs
 const activeTab = ref<'pages' | 'assets'>('pages');
@@ -232,6 +234,9 @@ function importProject() {
         <button @click="store.linkUnrealProject" class="flex-1 bg-cyber-dark/50 hover:bg-cyber-green/10 border border-transparent hover:border-cyber-green/30 text-[10px] text-cyber-text hover:text-cyber-green py-1 rounded transition-all" :title="project?.unrealProjectPath ? 'Linked: ' + project.unrealProjectPath : 'Link Unreal Project'">
           {{ project?.unrealProjectPath ? 'LINKED' : 'LINK_UE' }}
         </button>
+        <button @click="showSettings = true" class="flex-1 bg-cyber-dark/50 hover:bg-cyber-green/10 border border-transparent hover:border-cyber-green/30 text-[10px] text-cyber-text hover:text-cyber-green py-1 rounded transition-all" title="Settings">
+          ⚙️
+        </button>
       </div>
 
       <!-- Search Trigger -->
@@ -376,5 +381,7 @@ function importProject() {
       @close="modalState.show = false"
       @confirm="handleModalConfirm"
     />
+    
+    <SettingsModal :show="showSettings" @close="showSettings = false" />
   </div>
 </template>

@@ -1,25 +1,75 @@
 import { writeTextFile, readTextFile, createDir, exists, writeBinaryFile, readBinaryFile, removeFile, readDir, BaseDirectory } from '@tauri-apps/api/fs';
+import { documentDir, join, sep } from '@tauri-apps/api/path';
 import type { StorageAdapter } from './types';
 import type { Project, Asset } from '../../types';
 
-const DATA_DIR = 'BlueprintCodex';
-const ASSETS_DIR = 'assets';
+const DEFAULT_DIR_NAME = 'BlueprintCodex';
+const ASSETS_DIR_NAME = 'assets';
 
 export class TauriStorage implements StorageAdapter {
   private initialized = false;
+  private rootPath: string | null = null;
+
+  // Helper to get the configured root path
+  async getLibraryPath(): Promise<string> {
+    if (this.rootPath) return this.rootPath;
+
+    try {
+      const docDir = await documentDir();
+      const configPath = await join(docDir, DEFAULT_DIR_NAME, 'config.json');
+      
+      if (await exists(configPath)) {
+        const configStr = await readTextFile(configPath);
+        const config = JSON.parse(configStr);
+        if (config.libraryPath) {
+          this.rootPath = config.libraryPath;
+          return this.rootPath!;
+        }
+      }
+      
+      // Default path
+      this.rootPath = await join(docDir, DEFAULT_DIR_NAME);
+    } catch (e) {
+      console.warn('Failed to resolve library path, using default', e);
+      const docDir = await documentDir();
+      this.rootPath = await join(docDir, DEFAULT_DIR_NAME);
+    }
+    return this.rootPath!;
+  }
+
+  async setLibraryPath(path: string): Promise<void> {
+    try {
+      const docDir = await documentDir();
+      const configDir = await join(docDir, DEFAULT_DIR_NAME);
+      if (!(await exists(configDir))) {
+        await createDir(configDir, { recursive: true });
+      }
+      
+      const configPath = await join(configDir, 'config.json');
+      await writeTextFile(configPath, JSON.stringify({ libraryPath: path }, null, 2));
+      
+      this.rootPath = path;
+      this.initialized = false; // Force re-init
+      await this.init();
+    } catch (e) {
+      console.error('Failed to set library path', e);
+      throw e;
+    }
+  }
 
   private async init() {
     if (this.initialized) return;
 
     try {
-      // Ensure directories exist in Documents folder
-      if (!(await exists(DATA_DIR, { dir: BaseDirectory.Document }))) {
-        await createDir(DATA_DIR, { dir: BaseDirectory.Document, recursive: true });
+      const root = await this.getLibraryPath();
+      
+      if (!(await exists(root))) {
+        await createDir(root, { recursive: true });
       }
 
-      const assetsPath = `${DATA_DIR}/${ASSETS_DIR}`;
-      if (!(await exists(assetsPath, { dir: BaseDirectory.Document }))) {
-        await createDir(assetsPath, { dir: BaseDirectory.Document, recursive: true });
+      const assetsPath = await join(root, ASSETS_DIR_NAME);
+      if (!(await exists(assetsPath))) {
+        await createDir(assetsPath, { recursive: true });
       }
 
       this.initialized = true;
@@ -32,7 +82,12 @@ export class TauriStorage implements StorageAdapter {
   async loadProjects(): Promise<Project[]> {
     await this.init();
     try {
-      const content = await readTextFile(`${DATA_DIR}/projects.json`, { dir: BaseDirectory.Document });
+      const root = await this.getLibraryPath();
+      const projectsPath = await join(root, 'projects.json');
+      
+      if (!(await exists(projectsPath))) return [];
+
+      const content = await readTextFile(projectsPath);
       const data = JSON.parse(content);
       return Array.isArray(data) ? data : (data.projects || []);
     } catch (e) {
@@ -44,7 +99,9 @@ export class TauriStorage implements StorageAdapter {
   async saveProjects(projects: Project[]): Promise<void> {
     await this.init();
     try {
-      await writeTextFile(`${DATA_DIR}/projects.json`, JSON.stringify(projects, null, 2), { dir: BaseDirectory.Document });
+      const root = await this.getLibraryPath();
+      const projectsPath = await join(root, 'projects.json');
+      await writeTextFile(projectsPath, JSON.stringify(projects, null, 2));
     } catch (e) {
       console.error('Failed to save projects to Tauri FS', e);
       throw e;
@@ -53,14 +110,17 @@ export class TauriStorage implements StorageAdapter {
 
   async saveAsset(file: File): Promise<Asset> {
     await this.init();
+    const root = await this.getLibraryPath();
     const ext = file.name.split('.').pop();
     const id = crypto.randomUUID();
     const filename = `${id}.${ext}`;
-    const filePath = `${DATA_DIR}/${ASSETS_DIR}/${filename}`;
-    const metaPath = `${DATA_DIR}/${ASSETS_DIR}/${id}.json`;
+    
+    const assetsDir = await join(root, ASSETS_DIR_NAME);
+    const filePath = await join(assetsDir, filename);
+    const metaPath = await join(assetsDir, `${id}.json`);
 
     const buffer = await file.arrayBuffer();
-    await writeBinaryFile(filePath, new Uint8Array(buffer), { dir: BaseDirectory.Document });
+    await writeBinaryFile(filePath, new Uint8Array(buffer));
 
     const asset: Asset = {
       id,
@@ -73,7 +133,7 @@ export class TauriStorage implements StorageAdapter {
       tags: []
     };
 
-    await writeTextFile(metaPath, JSON.stringify(asset, null, 2), { dir: BaseDirectory.Document });
+    await writeTextFile(metaPath, JSON.stringify(asset, null, 2));
 
     return asset;
   }
@@ -81,12 +141,15 @@ export class TauriStorage implements StorageAdapter {
   async loadAsset(assetId: string): Promise<Blob | null> {
     await this.init();
     try {
+      const root = await this.getLibraryPath();
+      const assetsDir = await join(root, ASSETS_DIR_NAME);
+      
       // Try to load metadata first to get filename
       let filename = assetId;
       try {
-        const metaPath = `${DATA_DIR}/${ASSETS_DIR}/${assetId}.json`;
-        if (await exists(metaPath, { dir: BaseDirectory.Document })) {
-            const metaContent = await readTextFile(metaPath, { dir: BaseDirectory.Document });
+        const metaPath = await join(assetsDir, `${assetId}.json`);
+        if (await exists(metaPath)) {
+            const metaContent = await readTextFile(metaPath);
             const meta = JSON.parse(metaContent) as Asset;
             filename = meta.filename;
         }
@@ -94,8 +157,8 @@ export class TauriStorage implements StorageAdapter {
         // Fallback to assuming assetId is filename (legacy support)
       }
 
-      const filePath = `${DATA_DIR}/${ASSETS_DIR}/${filename}`;
-      const contents = await readBinaryFile(filePath, { dir: BaseDirectory.Document });
+      const filePath = await join(assetsDir, filename);
+      const contents = await readBinaryFile(filePath);
 
       // Determine mime type based on extension
       const ext = filename.split('.').pop()?.toLowerCase();
@@ -116,21 +179,24 @@ export class TauriStorage implements StorageAdapter {
   async deleteAsset(assetId: string): Promise<void> {
     await this.init();
     try {
+      const root = await this.getLibraryPath();
+      const assetsDir = await join(root, ASSETS_DIR_NAME);
+      
       // Try to load metadata first to get filename
       let filename = assetId;
       try {
-        const metaPath = `${DATA_DIR}/${ASSETS_DIR}/${assetId}.json`;
-        if (await exists(metaPath, { dir: BaseDirectory.Document })) {
-            const metaContent = await readTextFile(metaPath, { dir: BaseDirectory.Document });
+        const metaPath = await join(assetsDir, `${assetId}.json`);
+        if (await exists(metaPath)) {
+            const metaContent = await readTextFile(metaPath);
             const meta = JSON.parse(metaContent) as Asset;
             filename = meta.filename;
-            await removeFile(metaPath, { dir: BaseDirectory.Document });
+            await removeFile(metaPath);
         }
       } catch (e) {}
 
-      const filePath = `${DATA_DIR}/${ASSETS_DIR}/${filename}`;
-      if (await exists(filePath, { dir: BaseDirectory.Document })) {
-        await removeFile(filePath, { dir: BaseDirectory.Document });
+      const filePath = await join(assetsDir, filename);
+      if (await exists(filePath)) {
+        await removeFile(filePath);
       }
     } catch (e) {
       console.error('Failed to delete asset', e);
@@ -140,15 +206,17 @@ export class TauriStorage implements StorageAdapter {
   async listAssets(): Promise<Asset[]> {
     await this.init();
     try {
-      const assetsPath = `${DATA_DIR}/${ASSETS_DIR}`;
-      const entries = await readDir(assetsPath, { dir: BaseDirectory.Document });
+      const root = await this.getLibraryPath();
+      const assetsPath = await join(root, ASSETS_DIR_NAME);
+      const entries = await readDir(assetsPath);
       
       const assets: Asset[] = [];
       
       for (const entry of entries) {
         if (entry.name?.endsWith('.json')) {
             try {
-                const content = await readTextFile(`${assetsPath}/${entry.name}`, { dir: BaseDirectory.Document });
+                const metaPath = await join(assetsPath, entry.name);
+                const content = await readTextFile(metaPath);
                 assets.push(JSON.parse(content));
             } catch (e) {
                 console.warn('Failed to parse asset metadata', entry.name);
@@ -177,12 +245,15 @@ export class TauriStorage implements StorageAdapter {
 
   async updateAsset(assetId: string, updates: Partial<Asset>): Promise<void> {
       await this.init();
-      const metaPath = `${DATA_DIR}/${ASSETS_DIR}/${assetId}.json`;
-      if (await exists(metaPath, { dir: BaseDirectory.Document })) {
-          const content = await readTextFile(metaPath, { dir: BaseDirectory.Document });
+      const root = await this.getLibraryPath();
+      const assetsDir = await join(root, ASSETS_DIR_NAME);
+      const metaPath = await join(assetsDir, `${assetId}.json`);
+      
+      if (await exists(metaPath)) {
+          const content = await readTextFile(metaPath);
           const asset = JSON.parse(content) as Asset;
           const newAsset = { ...asset, ...updates };
-          await writeTextFile(metaPath, JSON.stringify(newAsset, null, 2), { dir: BaseDirectory.Document });
+          await writeTextFile(metaPath, JSON.stringify(newAsset, null, 2));
       }
   }
 }

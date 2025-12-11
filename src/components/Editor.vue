@@ -5,6 +5,7 @@ import { storeToRefs } from 'pinia';
 import DocumentView from './views/DocumentView.vue';
 import CanvasView from './views/CanvasView.vue';
 import GraphView from './views/GraphView.vue';
+import DashboardView from './views/DashboardView.vue';
 import PageProperties from './PageProperties.vue';
 import { exportPageToMarkdown, downloadMarkdown } from '../utils/export';
 import type { Block } from '../types';
@@ -149,8 +150,8 @@ onUnmounted(() => {
       <PageProperties v-if="showProperties" :page-id="activePage.id" />
     </div>
 
-    <div v-else class="flex-1 flex items-center justify-center text-gray-500 italic">
-      No page open. Select a page from the sidebar or create a new one.
+    <div v-else class="flex-1 flex overflow-hidden bg-cyber-dark/50">
+      <DashboardView class="w-full h-full" />
     </div>
   </div>
 </template>

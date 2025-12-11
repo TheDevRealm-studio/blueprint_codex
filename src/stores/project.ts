@@ -227,6 +227,12 @@ export const useProjectStore = defineStore('project', () => {
       openPageIds.value.push(id);
     }
     viewMode.value = 'editor';
+
+    // Increment view count
+    if (project.value && project.value.pages[id]) {
+        const page = project.value.pages[id];
+        page.viewCount = (page.viewCount || 0) + 1;
+    }
   }
 
   function closePage(id: string) {
