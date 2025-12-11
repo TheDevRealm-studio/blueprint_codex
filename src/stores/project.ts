@@ -2,6 +2,9 @@ import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
 import type { Project, DocPage, FileSystemNode } from '../types';
 import { storage } from '../services/storage';
+import { unrealService } from '../services/unreal';
+
+import { templates } from '../config/templates';
 
 export const useProjectStore = defineStore('project', () => {
   const projects = ref<Project[]>([]);
@@ -10,6 +13,7 @@ export const useProjectStore = defineStore('project', () => {
   const openPageIds = ref<string[]>([]);
   const viewMode = ref<'editor' | 'graph'>('editor');
   const isCommandPaletteOpen = ref(false);
+  const showKnowledgeGraph = ref(false);
 
   const serverStatus = ref<'online' | 'offline' | 'checking'>('checking');
   const saveStatus = ref<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -140,19 +144,30 @@ export const useProjectStore = defineStore('project', () => {
     return undefined;
   }
 
-  function addPage(title: string, parentNodeId?: string) {
+  function addPage(title: string, parentNodeId?: string, templateId?: string) {
     if (!project.value) return;
 
     const id = crypto.randomUUID();
+    
+    // Find template
+    const template = templates.find(t => t.id === templateId) || templates[0];
+    let initialMarkdown = '# ' + title + '\n\nStart writing...';
+    let initialTags: string[] = [];
+
+    if (template) {
+        initialMarkdown = template.markdown.replace('Actor Name', title).replace('Game Mode Name', title).replace('System Name', title);
+        initialTags = template.tags || [];
+    }
+
     const newPage: DocPage = {
       id,
       title,
       slug: title.toLowerCase().replace(/\s+/g, '-'),
       category: 'General',
-      tags: [],
+      tags: initialTags,
       blocks: [],
       edges: [],
-      markdownBody: '# ' + title + '\n\nStart writing...',
+      markdownBody: initialMarkdown,
       viewMode: 'document'
     };
 
@@ -364,6 +379,35 @@ export const useProjectStore = defineStore('project', () => {
     openPageIds.value = [];
   }
 
+  async function linkUnrealProject() {
+    if (!project.value) return;
+    const path = await unrealService.selectProject();
+    if (path) {
+      project.value.unrealProjectPath = path;
+      // Auto-save handled by watcher
+    }
+  }
+
+  function addLink(sourceId: string, targetId: string) {
+    if (!project.value) return;
+    const sourcePage = project.value.pages[sourceId];
+    const targetPage = project.value.pages[targetId];
+    
+    if (sourcePage && targetPage) {
+      const linkText = `\n\nSee also: [[${targetPage.title}]]`;
+      updatePage(sourceId, {
+        markdownBody: (sourcePage.markdownBody || '') + linkText
+      });
+    }
+  }
+
+  // Watch for project changes to load Unreal context
+  watch(project, (newVal) => {
+    if (newVal && newVal.unrealProjectPath) {
+      unrealService.scanProject(newVal.unrealProjectPath);
+    }
+  }, { immediate: true });
+
   return {
     projects,
     currentProjectId,
@@ -385,8 +429,11 @@ export const useProjectStore = defineStore('project', () => {
     deleteNode,
     moveNode,
     importProject,
+    linkUnrealProject,
+    addLink,
     serverStatus,
     saveStatus,
-    isCommandPaletteOpen
+    isCommandPaletteOpen,
+    showKnowledgeGraph
   };
 });

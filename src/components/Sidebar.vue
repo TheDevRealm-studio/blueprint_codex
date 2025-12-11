@@ -49,12 +49,12 @@ function openModal(mode: typeof modalState.value.mode, title: string, placeholde
   };
 }
 
-function handleModalConfirm(value: string) {
+function handleModalConfirm(value: string, templateId?: string) {
   const { mode, targetId } = modalState.value;
   
   switch (mode) {
     case 'createPage':
-      store.addPage(value);
+      store.addPage(value, undefined, templateId);
       break;
     case 'createFolder':
       store.addFolder(value);
@@ -67,7 +67,7 @@ function handleModalConfirm(value: string) {
       if (targetId) store.renameNode(targetId, value);
       break;
     case 'createPageInFolder':
-      if (targetId) store.addPage(value, targetId);
+      if (targetId) store.addPage(value, targetId, templateId);
       break;
     case 'createFolderInFolder':
       if (targetId) store.addFolder(value, targetId);
@@ -167,82 +167,84 @@ function importProject() {
 </script>
 
 <template>
-  <div class="w-72 bg-ue-panel border-r border-black flex flex-col h-full shadow-xl z-20 select-none">
+  <div class="w-72 bg-cyber-panel border-r border-cyber-green/20 flex flex-col h-full shadow-xl z-20 select-none font-mono">
     <!-- Project Selector Header -->
-    <div class="p-3 border-b border-black bg-ue-header">
+    <div class="p-3 border-b border-cyber-green/20 bg-cyber-header">
       <div
         @click="showProjectSelect = !showProjectSelect"
         class="flex items-center justify-between cursor-pointer group"
       >
         <div class="flex items-center gap-2 overflow-hidden">
-          <div class="w-6 h-6 rounded bg-gradient-to-br from-ue-accent to-brand-purple flex items-center justify-center text-white font-bold text-[10px] shrink-0 shadow-sm">
+          <div class="w-6 h-6 rounded bg-cyber-green/20 border border-cyber-green text-cyber-green flex items-center justify-center font-bold text-[10px] shrink-0 shadow-[0_0_10px_rgba(0,255,157,0.2)]">
             {{ project?.name.substring(0, 2).toUpperCase() || 'BP' }}
           </div>
-          <span class="font-bold truncate text-gray-200 group-hover:text-white transition-colors text-sm">{{ project?.name || 'Select Project' }}</span>
+          <span class="font-bold truncate text-cyber-text group-hover:text-cyber-green transition-colors text-sm">{{ project?.name || 'SELECT_PROJECT' }}</span>
         </div>
-        <span class="text-[10px] text-gray-500 group-hover:text-white transition-colors">▼</span>
+        <span class="text-[10px] text-cyber-text/50 group-hover:text-cyber-green transition-colors">▼</span>
       </div>
 
       <!-- Project Actions -->
-      <div class="flex gap-1 mt-2 pt-2 border-t border-gray-700">
-        <button @click="exportProject" class="flex-1 bg-black/20 hover:bg-black/40 text-[10px] text-gray-400 hover:text-white py-1 rounded transition-colors" title="Export Project">
-          Export
+      <div class="flex gap-1 mt-2 pt-2 border-t border-cyber-green/10">
+        <button @click="exportProject" class="flex-1 bg-cyber-dark/50 hover:bg-cyber-green/10 border border-transparent hover:border-cyber-green/30 text-[10px] text-cyber-text hover:text-cyber-green py-1 rounded transition-all" title="Export Project">
+          EXPORT
         </button>
-        <button @click="importProject" class="flex-1 bg-black/20 hover:bg-black/40 text-[10px] text-gray-400 hover:text-white py-1 rounded transition-colors" title="Import Project">
-          Import
+        <button @click="importProject" class="flex-1 bg-cyber-dark/50 hover:bg-cyber-green/10 border border-transparent hover:border-cyber-green/30 text-[10px] text-cyber-text hover:text-cyber-green py-1 rounded transition-all" title="Import Project">
+          IMPORT
+        </button>
+        <button @click="store.linkUnrealProject" class="flex-1 bg-cyber-dark/50 hover:bg-cyber-green/10 border border-transparent hover:border-cyber-green/30 text-[10px] text-cyber-text hover:text-cyber-green py-1 rounded transition-all" :title="project?.unrealProjectPath ? 'Linked: ' + project.unrealProjectPath : 'Link Unreal Project'">
+          {{ project?.unrealProjectPath ? 'LINKED' : 'LINK_UE' }}
         </button>
       </div>
 
       <!-- Search Trigger -->
       <div class="mt-2 relative" @click="store.isCommandPaletteOpen = true">
-        <div class="bg-black/30 border border-gray-700 rounded px-2 py-1 text-xs text-gray-500 flex items-center gap-2 cursor-pointer hover:border-gray-500 hover:text-gray-300 transition-all">
+        <div class="bg-cyber-dark/50 border border-cyber-green/20 rounded px-2 py-1 text-xs text-cyber-text/70 flex items-center gap-2 cursor-pointer hover:border-cyber-green/50 hover:text-cyber-green transition-all">
           <span>🔍</span>
-          <span>Search...</span>
-          <span class="ml-auto text-[10px] border border-gray-700 px-1 rounded">Cmd+K</span>
+          <span>SEARCH...</span>
+          <span class="ml-auto text-[10px] border border-cyber-green/20 px-1 rounded text-cyber-green/70">CMD+K</span>
         </div>
       </div>
     </div>
 
     <!-- Project List Dropdown -->
-    <div v-if="showProjectSelect" class="bg-ue-dark border-b border-black max-h-48 overflow-y-auto shadow-inner absolute top-12 w-72 z-50">
+    <div v-if="showProjectSelect" class="bg-cyber-dark border border-cyber-green/30 max-h-48 overflow-y-auto shadow-[0_0_20px_rgba(0,0,0,0.5)] absolute top-12 w-72 z-50 rounded-b">
       <div
         v-for="p in projects"
         :key="p.id"
         @click="store.selectProject(p.id); showProjectSelect = false"
-        class="px-4 py-2 text-sm cursor-pointer hover:bg-ue-panel flex items-center gap-2"
-        :class="currentProjectId === p.id ? 'text-ue-accent bg-ue-panel' : 'text-gray-400'"
+        class="px-4 py-2 text-sm cursor-pointer hover:bg-cyber-green/10 flex items-center gap-2 border-l-2 border-transparent hover:border-cyber-green"
+        :class="currentProjectId === p.id ? 'text-cyber-green bg-cyber-green/5 border-cyber-green' : 'text-cyber-text'"
       >
-        <span class="w-1.5 h-1.5 rounded-full" :class="currentProjectId === p.id ? 'bg-ue-accent' : 'bg-gray-600'"></span>
+        <span class="w-1.5 h-1.5 rounded-full" :class="currentProjectId === p.id ? 'bg-cyber-green shadow-[0_0_5px_rgba(0,255,157,0.5)]' : 'bg-cyber-text/30'"></span>
         {{ p.name }}
       </div>
       <div
         @click="createNewProject"
-        class="px-4 py-2 text-sm cursor-pointer text-ue-accent hover:bg-ue-panel border-t border-black flex items-center gap-2 font-medium"
+        class="px-4 py-2 text-sm cursor-pointer text-cyber-green hover:bg-cyber-green/10 border-t border-cyber-green/20 flex items-center gap-2 font-medium"
       >
-        <span>+</span> New Project
+        <span>+</span> NEW_PROJECT
       </div>
     </div>
 
     <!-- Content Browser Header -->
-    <div class="px-3 py-2 flex justify-between items-center bg-ue-panel border-b border-black/50">
-      <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Content Browser</span>
+    <div class="px-3 py-2 flex justify-between items-center bg-cyber-panel border-b border-cyber-green/20">
+      <span class="text-xs font-bold text-cyber-green/70 uppercase tracking-wider flex items-center gap-2">
+        <span>></span> CONTENT_BROWSER
+      </span>
       <div class="flex gap-1">
-        <button @click="store.setViewMode('graph')" class="text-gray-500 hover:text-ue-accent transition-colors p-1 rounded hover:bg-white/5" title="Graph View">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
-        </button>
-        <button @click="createFolder" class="text-gray-500 hover:text-ue-accent transition-colors p-1 rounded hover:bg-white/5" title="New Folder">
+        <button @click="createFolder" class="text-cyber-text hover:text-cyber-green transition-colors p-1 rounded hover:bg-cyber-green/10" title="New Folder">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>
         </button>
-        <button @click="createPage" class="text-gray-500 hover:text-ue-accent transition-colors p-1 rounded hover:bg-white/5" title="New Page">
+        <button @click="createPage" class="text-cyber-text hover:text-cyber-green transition-colors p-1 rounded hover:bg-cyber-green/10" title="New Page">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
         </button>
       </div>
     </div>
 
     <!-- Tree View -->
-    <div class="flex-1 overflow-y-auto py-2 custom-scrollbar bg-ue-dark">
-      <div v-if="!project || project.structure.length === 0" class="text-gray-600 text-xs text-center mt-8 italic">
-        Right-click or use buttons to add content.
+    <div class="flex-1 overflow-y-auto py-2 custom-scrollbar bg-cyber-dark/30">
+      <div v-if="!project || project.structure.length === 0" class="text-cyber-text/40 text-xs text-center mt-8 italic font-mono">
+        // NO_CONTENT_FOUND
       </div>
       <template v-else>
         <FileSystemItem
@@ -258,14 +260,14 @@ function importProject() {
     <!-- Context Menu -->
     <div
       v-if="contextMenu.visible"
-      class="fixed bg-ue-panel border border-black shadow-xl z-50 py-1 rounded min-w-[150px]"
+      class="fixed bg-cyber-panel border border-cyber-green/30 shadow-[0_0_15px_rgba(0,0,0,0.5)] z-50 py-1 rounded min-w-[150px]"
       :style="{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }"
     >
-      <div @click="handleRename" class="px-4 py-1 text-xs text-gray-300 hover:bg-ue-accent hover:text-white cursor-pointer">Rename</div>
-      <div @click="handleDelete" class="px-4 py-1 text-xs text-gray-300 hover:bg-red-600 hover:text-white cursor-pointer">Delete</div>
-      <div v-if="contextMenu.node?.type === 'folder'" class="border-t border-black my-1"></div>
-      <div v-if="contextMenu.node?.type === 'folder'" @click="handleNewPageInFolder" class="px-4 py-1 text-xs text-gray-300 hover:bg-ue-accent hover:text-white cursor-pointer">New Page</div>
-      <div v-if="contextMenu.node?.type === 'folder'" @click="handleNewFolderInFolder" class="px-4 py-1 text-xs text-gray-300 hover:bg-ue-accent hover:text-white cursor-pointer">New Folder</div>
+      <div @click="handleRename" class="px-4 py-1 text-xs text-cyber-text hover:bg-cyber-green/20 hover:text-cyber-green cursor-pointer font-mono">> RENAME</div>
+      <div @click="handleDelete" class="px-4 py-1 text-xs text-cyber-text hover:bg-red-900/50 hover:text-red-400 cursor-pointer font-mono">> DELETE</div>
+      <div v-if="contextMenu.node?.type === 'folder'" class="border-t border-cyber-green/10 my-1"></div>
+      <div v-if="contextMenu.node?.type === 'folder'" @click="handleNewPageInFolder" class="px-4 py-1 text-xs text-cyber-text hover:bg-cyber-green/20 hover:text-cyber-green cursor-pointer font-mono">> NEW_PAGE</div>
+      <div v-if="contextMenu.node?.type === 'folder'" @click="handleNewFolderInFolder" class="px-4 py-1 text-xs text-cyber-text hover:bg-cyber-green/20 hover:text-cyber-green cursor-pointer font-mono">> NEW_FOLDER</div>
     </div>
 
     <InputModal
@@ -273,6 +275,7 @@ function importProject() {
       :title="modalState.title"
       :placeholder="modalState.placeholder"
       :initial-value="modalState.initialValue"
+      :show-templates="modalState.mode === 'createPage' || modalState.mode === 'createPageInFolder'"
       @close="modalState.show = false"
       @confirm="handleModalConfirm"
     />

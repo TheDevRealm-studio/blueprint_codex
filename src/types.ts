@@ -94,6 +94,13 @@ export interface DocPage {
   edges: Edge[];
   markdownBody: string; // For Document View
   viewMode: 'document' | 'canvas';
+  metadata?: {
+    engineVersion?: string;
+    status?: 'draft' | 'review' | 'verified' | 'deprecated';
+    owner?: string;
+    createdAt?: string;
+    updatedAt?: string;
+  };
 }
 
 export interface Project {
@@ -102,4 +109,5 @@ export interface Project {
   structure: FileSystemNode[]; // Root level nodes
   pages: Record<string, DocPage>; // Flat storage for content
   media: string[]; // Paths to media files
+  unrealProjectPath?: string; // Path to the .uproject file or Content folder
 }

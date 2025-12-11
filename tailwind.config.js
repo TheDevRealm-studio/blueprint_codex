@@ -7,40 +7,51 @@ export default {
   theme: {
     extend: {
       colors: {
-        'ue-dark': '#151515', // UE5 Main Background
-        'ue-panel': '#1E1E1E', // UE5 Panel Background
-        'ue-header': '#262626', // UE5 Header/Toolbar
-        'ue-selected': '#005FB8', // UE5 Selection Blue
-        'ue-text': '#B0B0B0', // UE5 Standard Text
-        'ue-text-bright': '#FFFFFF', // UE5 Bright Text
-        'ue-accent': '#F08D49', // UE5 Orange Accent
+        'cyber-dark': '#020408', // Deepest background
+        'cyber-panel': '#050A14', // Panel background
+        'cyber-card': '#0A1020', // Card background
+        'cyber-green': '#00FF9D', // Neon Green
+        'cyber-purple': '#7C3AED', // Neon Purple
+        'cyber-orange': '#F59E0B', // Neon Orange
+        'cyber-blue': '#3B82F6', // Neon Blue
+        'cyber-text': '#94A3B8', // Muted Text
+        'cyber-text-bright': '#E2E8F0', // Bright Text
+        
+        // Legacy mappings for compatibility
+        'ue-dark': '#020408', 
+        'ue-panel': '#050A14',
+        'ue-header': '#0A1020',
+        'ue-selected': '#00FF9D', // Selection becomes green
+        'ue-text': '#94A3B8',
+        'ue-text-bright': '#E2E8F0',
+        'ue-accent': '#00FF9D', // Accent becomes green
 
-        // Brand Palette (Legacy/Custom)
-        'brand-green': '#10B981',
-        'brand-purple': '#8B5CF6',
+        'brand-green': '#00FF9D',
+        'brand-purple': '#7C3AED',
         'brand-orange': '#F59E0B',
-        'brand-dark': '#151515',
-        'brand-surface': '#1E1E1E',
-        'brand-text': '#B0B0B0',
+        'brand-dark': '#020408',
+        'brand-surface': '#050A14',
+        'brand-text': '#94A3B8',
       },
       fontFamily: {
-        sans: ['Inter', 'sans-serif'],
+        sans: ['JetBrains Mono', 'monospace'], // Default to mono for the cyber look
         mono: ['JetBrains Mono', 'monospace'],
       },
       typography: (theme) => ({
         DEFAULT: {
           css: {
-            color: theme('colors.gray.300'),
-            h1: { color: theme('colors.brand-green') },
-            h2: { color: theme('colors.brand-purple') },
-            h3: { color: theme('colors.brand-orange') },
-            strong: { color: theme('colors.white') },
-            code: { color: theme('colors.brand-orange') },
+            color: theme('colors.cyber-text'),
+            h1: { color: theme('colors.cyber-green'), fontFamily: 'monospace' },
+            h2: { color: theme('colors.cyber-purple'), fontFamily: 'monospace' },
+            h3: { color: theme('colors.cyber-orange'), fontFamily: 'monospace' },
+            strong: { color: theme('colors.cyber-text-bright') },
+            code: { color: theme('colors.cyber-green'), backgroundColor: 'rgba(0, 255, 157, 0.1)' },
             blockquote: {
-              borderLeftColor: theme('colors.brand-purple'),
-              color: theme('colors.gray.400')
+              borderLeftColor: theme('colors.cyber-purple'),
+              color: theme('colors.cyber-text')
             },
-            'ul > li::marker': { color: theme('colors.brand-green') },
+            'ul > li::marker': { color: theme('colors.cyber-green') },
+            a: { color: theme('colors.cyber-blue'), textDecoration: 'none' },
           },
         },
       }),

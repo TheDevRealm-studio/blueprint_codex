@@ -1,24 +1,28 @@
 <script setup lang="ts">
 import { ref, nextTick, watch } from 'vue';
+import { templates } from '../config/templates';
 
 const props = defineProps<{
   show: boolean;
   title: string;
   placeholder?: string;
   initialValue?: string;
+  showTemplates?: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: 'close'): void;
-  (e: 'confirm', value: string): void;
+  (e: 'confirm', value: string, templateId?: string): void;
 }>();
 
 const inputValue = ref('');
+const selectedTemplateId = ref('blank');
 const inputRef = ref<HTMLInputElement | null>(null);
 
 watch(() => props.show, (newVal) => {
   if (newVal) {
     inputValue.value = props.initialValue || '';
+    selectedTemplateId.value = 'blank';
     nextTick(() => {
       inputRef.value?.focus();
       inputRef.value?.select();
@@ -28,7 +32,7 @@ watch(() => props.show, (newVal) => {
 
 function onConfirm() {
   if (inputValue.value.trim()) {
-    emit('confirm', inputValue.value.trim());
+    emit('confirm', inputValue.value.trim(), props.showTemplates ? selectedTemplateId.value : undefined);
     emit('close');
   }
 }
@@ -52,6 +56,21 @@ function onCancel() {
         @keyup.enter="onConfirm"
         @keyup.esc="onCancel"
       />
+
+      <div v-if="showTemplates" class="flex flex-col gap-1">
+        <label class="text-xs text-gray-400 font-bold uppercase">Template</label>
+        <select 
+          v-model="selectedTemplateId"
+          class="bg-black/30 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:border-ue-accent focus:outline-none appearance-none cursor-pointer"
+        >
+          <option v-for="t in templates" :key="t.id" :value="t.id">
+            {{ t.name }}
+          </option>
+        </select>
+        <div class="text-[10px] text-gray-500 italic">
+          {{ templates.find(t => t.id === selectedTemplateId)?.description }}
+        </div>
+      </div>
 
       <div class="flex justify-end gap-2">
         <button 

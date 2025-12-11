@@ -3,13 +3,13 @@
 @tailwind utilities;
 
 :root {
-  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
   line-height: 1.5;
   font-weight: 400;
 
   color-scheme: dark;
-  color: #64748B;
-  background-color: #0A0F1C;
+  color: #94A3B8;
+  background-color: #020408;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -23,6 +23,11 @@ body {
   place-items: center;
   min-width: 320px;
   min-height: 100vh;
+  background-color: #020408;
+  background-image: 
+    linear-gradient(rgba(0, 255, 157, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 157, 0.03) 1px, transparent 1px);
+  background-size: 30px 30px;
 }
 
 #app {

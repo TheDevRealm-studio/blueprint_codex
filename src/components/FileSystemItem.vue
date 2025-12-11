@@ -26,10 +26,13 @@ function handleClick() {
 }
 
 function handleDragStart(e: DragEvent) {
-    e.dataTransfer?.setData('application/x-codex-node', props.node.id);
-    if (props.node.type === 'page' && props.node.pageId) {
-        e.dataTransfer?.setData('application/x-codex-page', props.node.pageId);
-        e.dataTransfer?.setData('text/plain', props.node.name);
+    if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'all';
+        e.dataTransfer.setData('application/x-codex-node', props.node.id);
+        if (props.node.type === 'page' && props.node.pageId) {
+            e.dataTransfer.setData('application/x-codex-page', props.node.pageId);
+            e.dataTransfer.setData('text/plain', `[[${props.node.name}]]`);
+        }
     }
 }
 

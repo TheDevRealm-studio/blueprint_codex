@@ -5,6 +5,7 @@ import { computed, ref } from 'vue';
 import MediaDisplay from '../MediaDisplay.vue';
 import BlueprintVisualizer from '../../BlueprintVisualizer.vue';
 import { useProjectStore } from '../../../stores/project';
+import { unrealService } from '../../../services/unreal';
 import type { Pin } from '../../../types';
 import '@vue-flow/node-resizer/dist/style.css';
 import hljs from 'highlight.js';
@@ -27,6 +28,19 @@ const props = defineProps<{
 
 const store = useProjectStore();
 const isEditingCode = ref(false);
+const assetSearchQuery = ref('');
+const showAssetResults = ref(false);
+
+const assetSearchResults = computed(() => {
+  if (!assetSearchQuery.value) return [];
+  return unrealService.search(assetSearchQuery.value);
+});
+
+function selectAsset(asset: any) {
+  updateContent({ reference: `Blueprint'${asset.path}.${asset.name}'` });
+  showAssetResults.value = false;
+  assetSearchQuery.value = '';
+}
 
 const nodeStyle = computed(() => ({
   width: props.data.width ? `${props.data.width}px` : 'auto',
@@ -419,13 +433,27 @@ function onResizeEnd(event: any) {
 
       <!-- Asset Block -->
       <div v-else-if="data.type === 'asset'" class="flex flex-col h-full gap-2 p-2">
-        <div v-if="!data.content.reference" class="flex-1 flex items-center justify-center">
+        <div v-if="!data.content.reference" class="flex-1 flex flex-col relative">
              <input
-                :value="data.content.reference"
-                @change="(e: Event) => updateContent({ reference: (e.target as HTMLInputElement).value })"
+                v-model="assetSearchQuery"
+                @focus="showAssetResults = true"
                 class="w-full bg-black/20 border border-gray-700 rounded p-2 text-xs text-gray-300 focus:outline-none focus:border-ue-accent"
-                placeholder="Paste Asset Reference here..."
+                placeholder="Search Asset or Paste Reference..."
+                @change="(e: Event) => updateContent({ reference: (e.target as HTMLInputElement).value })"
             />
+            
+            <!-- Autocomplete Results -->
+            <div v-if="showAssetResults && assetSearchResults.length > 0" class="absolute top-full left-0 w-full bg-ue-panel border border-gray-700 shadow-xl z-50 max-h-40 overflow-y-auto mt-1 rounded">
+              <div 
+                v-for="asset in assetSearchResults" 
+                :key="asset.fullPath"
+                @mousedown="selectAsset(asset)"
+                class="px-2 py-1 hover:bg-ue-accent hover:text-white cursor-pointer text-xs flex flex-col border-b border-gray-800 last:border-0"
+              >
+                <span class="font-bold">{{ asset.name }}</span>
+                <span class="text-[10px] opacity-70 truncate">{{ asset.path }}</span>
+              </div>
+            </div>
         </div>
         <div v-else class="flex flex-col gap-2 h-full">
             <div class="flex items-center gap-2 bg-black/40 p-2 rounded border border-gray-700">
