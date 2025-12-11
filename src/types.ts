@@ -6,13 +6,31 @@ export interface Pin {
 
 export interface Block {
   id: string;
-  type: 'text' | 'steps' | 'media' | 'blueprint' | 'blueprint-modal' | 'link' | 'code' | 'asset';
+  type: 'text' | 'steps' | 'media' | 'blueprint' | 'blueprint-modal' | 'link' | 'code' | 'asset' | 'youtube' | 'website';
   content: any;
   x: number;
   y: number;
   width: number;
   height: number;
   pins?: Pin[];
+}
+
+export interface YoutubeBlock extends Block {
+  type: 'youtube';
+  content: {
+    url: string;
+    title?: string;
+  };
+}
+
+export interface WebsiteBlock extends Block {
+  type: 'website';
+  content: {
+    url: string;
+    title?: string;
+    description?: string;
+    imageUrl?: string;
+  };
 }
 
 export interface LinkBlock extends Block {
@@ -101,6 +119,17 @@ export interface DocPage {
     createdAt?: string;
     updatedAt?: string;
   };
+}
+
+export interface Asset {
+  id: string;
+  filename: string; // The actual file on disk (e.g. uuid.png)
+  originalName: string; // The original upload name
+  name: string; // Display name
+  type: string; // MIME type
+  size: number;
+  createdAt: number;
+  tags: string[];
 }
 
 export interface Project {

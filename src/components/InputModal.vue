@@ -46,7 +46,7 @@ function onCancel() {
   <div v-if="show" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm" @click.self="onCancel">
     <div class="bg-ue-panel border border-ue-accent shadow-2xl rounded-lg w-96 p-4 flex flex-col gap-4">
       <h3 class="text-white font-bold text-sm uppercase tracking-wider">{{ title }}</h3>
-      
+
       <input
         ref="inputRef"
         v-model="inputValue"
@@ -59,7 +59,7 @@ function onCancel() {
 
       <div v-if="showTemplates" class="flex flex-col gap-1">
         <label class="text-xs text-gray-400 font-bold uppercase">Template</label>
-        <select 
+        <select
           v-model="selectedTemplateId"
           class="bg-black/30 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:border-ue-accent focus:outline-none appearance-none cursor-pointer"
         >
@@ -73,13 +73,13 @@ function onCancel() {
       </div>
 
       <div class="flex justify-end gap-2">
-        <button 
+        <button
           @click="onCancel"
           class="px-3 py-1.5 text-xs text-gray-400 hover:text-white hover:bg-white/10 rounded transition-colors"
         >
           Cancel
         </button>
-        <button 
+        <button
           @click="onConfirm"
           class="px-3 py-1.5 text-xs bg-ue-accent text-white font-bold rounded hover:bg-ue-accent/80 transition-colors"
         >

@@ -148,7 +148,7 @@ export const useProjectStore = defineStore('project', () => {
     if (!project.value) return;
 
     const id = crypto.randomUUID();
-    
+
     // Find template
     const template = templates.find(t => t.id === templateId) || templates[0];
     let initialMarkdown = '# ' + title + '\n\nStart writing...';
@@ -392,7 +392,7 @@ export const useProjectStore = defineStore('project', () => {
     if (!project.value) return;
     const sourcePage = project.value.pages[sourceId];
     const targetPage = project.value.pages[targetId];
-    
+
     if (sourcePage && targetPage) {
       const linkText = `\n\nSee also: [[${targetPage.title}]]`;
       updatePage(sourceId, {

@@ -14,10 +14,10 @@ const metadata = computed(() => {
 
 function updateMetadata(key: string, value: any) {
   if (!page.value) return;
-  
+
   const currentMetadata = page.value.metadata || {};
   const newMetadata = { ...currentMetadata, [key]: value, updatedAt: new Date().toISOString() };
-  
+
   store.updatePage(props.pageId, { metadata: newMetadata });
 }
 
@@ -55,11 +55,11 @@ const statusColors = {
     </div>
 
     <div class="p-4 flex flex-col gap-4 overflow-y-auto custom-scrollbar">
-      
+
       <!-- Status -->
       <div class="flex flex-col gap-1">
         <label class="text-gray-500 font-bold">Status</label>
-        <select 
+        <select
           :value="metadata.status || 'draft'"
           @change="(e) => updateMetadata('status', (e.target as HTMLSelectElement).value)"
           class="bg-black/20 border rounded px-2 py-1 focus:outline-none focus:border-ue-accent appearance-none cursor-pointer"
@@ -75,7 +75,7 @@ const statusColors = {
       <!-- Engine Version -->
       <div class="flex flex-col gap-1">
         <label class="text-gray-500 font-bold">Engine Version</label>
-        <input 
+        <input
           :value="metadata.engineVersion"
           @change="(e) => updateMetadata('engineVersion', (e.target as HTMLInputElement).value)"
           class="bg-black/20 border border-gray-700 rounded px-2 py-1 text-gray-300 focus:outline-none focus:border-ue-accent"
@@ -86,7 +86,7 @@ const statusColors = {
       <!-- Owner -->
       <div class="flex flex-col gap-1">
         <label class="text-gray-500 font-bold">Owner</label>
-        <input 
+        <input
           :value="metadata.owner"
           @change="(e) => updateMetadata('owner', (e.target as HTMLInputElement).value)"
           class="bg-black/20 border border-gray-700 rounded px-2 py-1 text-gray-300 focus:outline-none focus:border-ue-accent"
@@ -98,8 +98,8 @@ const statusColors = {
       <div class="flex flex-col gap-2">
         <label class="text-gray-500 font-bold">Tags</label>
         <div class="flex flex-wrap gap-1">
-          <span 
-            v-for="tag in page.tags" 
+          <span
+            v-for="tag in page.tags"
             :key="tag"
             class="bg-ue-accent/20 text-ue-accent border border-ue-accent/50 px-1.5 py-0.5 rounded flex items-center gap-1"
           >
@@ -107,7 +107,7 @@ const statusColors = {
             <button @click="removeTag(tag)" class="hover:text-white">×</button>
           </span>
         </div>
-        <input 
+        <input
           @keydown.enter="addTag"
           class="bg-black/20 border border-gray-700 rounded px-2 py-1 text-gray-300 focus:outline-none focus:border-ue-accent"
           placeholder="+ Add Tag"

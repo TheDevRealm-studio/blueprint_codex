@@ -58,6 +58,25 @@ class StorageManager implements StorageAdapter {
     await this.initPromise;
     return this.adapter.deleteAsset(assetId);
   }
+
+  async listAssets() {
+    await this.initPromise;
+    // @ts-ignore
+    if (this.adapter.listAssets) {
+        // @ts-ignore
+        return this.adapter.listAssets();
+    }
+    return [];
+  }
+
+  async updateAsset(assetId: string, updates: any) {
+      await this.initPromise;
+      // @ts-ignore
+      if (this.adapter.updateAsset) {
+          // @ts-ignore
+          return this.adapter.updateAsset(assetId, updates);
+      }
+  }
 }
 
 export const storage = new StorageManager();

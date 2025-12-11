@@ -57,9 +57,9 @@ Frame updates.
 2. Rule 2
 
 ## Player Controllers
-- **Default Pawn Class**: 
-- **HUD Class**: 
-- **Player Controller Class**: 
+- **Default Pawn Class**:
+- **HUD Class**:
+- **Player Controller Class**:
 
 ## Game States
 - **WaitingToStart**:

@@ -1,4 +1,4 @@
-import type { Project } from '../../types';
+import type { Project, Asset } from '../../types';
 
 export interface StorageAdapter {
   // Project Metadata & Content
@@ -6,7 +6,9 @@ export interface StorageAdapter {
   saveProjects(projects: Project[]): Promise<void>;
 
   // Binary Assets (Images, Videos)
-  saveAsset(file: File): Promise<string>;
+  saveAsset(file: File): Promise<Asset>;
   loadAsset(assetId: string): Promise<Blob | null>;
   deleteAsset(assetId: string): Promise<void>;
+  listAssets(): Promise<Asset[]>;
+  updateAsset(assetId: string, updates: Partial<Asset>): Promise<void>;
 }

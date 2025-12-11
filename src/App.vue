@@ -18,7 +18,7 @@ const projectStore = useProjectStore();
       </h1>
 
       <div class="flex items-center gap-3 text-xs font-mono">
-        <button 
+        <button
           @click="projectStore.showKnowledgeGraph = !projectStore.showKnowledgeGraph"
           class="px-3 py-1 rounded border border-cyber-blue/30 text-cyber-blue hover:bg-cyber-blue/10 transition-all flex items-center gap-2"
           :class="{ 'bg-cyber-blue/20 border-cyber-blue': projectStore.showKnowledgeGraph }"

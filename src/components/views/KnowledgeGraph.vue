@@ -8,9 +8,9 @@
         </button>
       </div>
     </div>
-    
+
     <svg ref="svgRef" class="w-full h-full cursor-grab active:cursor-grabbing"></svg>
-    
+
     <div v-if="hoveredNode" class="absolute pointer-events-none bg-[#252526] border border-[#3e3e42] p-2 rounded shadow-xl z-20" :style="{ left: tooltipPos.x + 'px', top: tooltipPos.y + 'px' }">
       <div class="font-bold text-gray-200">{{ hoveredNode.title }}</div>
       <div class="text-xs text-gray-400">{{ hoveredNode.connections }} connections</div>
@@ -43,7 +43,7 @@ const links = computed(() => {
   if (!store.project) return [];
   const result: { source: string; target: string }[] = [];
   const pageMap = store.project.pages;
-  
+
   Object.values(pageMap).forEach(page => {
     // 1. Explicit edges from VueFlow
     if (page.edges) {
@@ -60,7 +60,7 @@ const links = computed(() => {
     while ((match = wikiLinkRegex.exec(page.markdownBody || '')) !== null) {
       const targetTitle = match[1];
       if (!targetTitle) continue;
-      
+
       // Find page by title (case insensitive)
       const targetPage = Object.values(pageMap).find(p => p.title.toLowerCase() === targetTitle.toLowerCase());
       if (targetPage && targetPage.id !== page.id) {
@@ -68,7 +68,7 @@ const links = computed(() => {
       }
     }
   });
-  
+
   return result;
 });
 
@@ -108,12 +108,12 @@ function resetZoom() {
 
 function initGraph() {
   if (!svgRef.value) return;
-  
+
   // const width = svgRef.value.clientWidth;
   // const height = svgRef.value.clientHeight;
 
   const svg = d3.select(svgRef.value);
-  
+
   // Clear previous
   svg.selectAll('*').remove();
 
@@ -133,10 +133,10 @@ function initGraph() {
 
 function updateGraph() {
   if (!svgRef.value || !store.project) return;
-  
+
   const width = svgRef.value.clientWidth;
   const height = svgRef.value.clientHeight;
-  
+
   // Prepare data
   const graphNodes = nodes.value.map(d => ({ ...d })) as d3.SimulationNodeDatum[];
   const graphLinks = links.value.map(d => ({ ...d }));
@@ -241,14 +241,14 @@ function updateGraph() {
       // Simple distance check
       const droppedNode = event.subject;
       const nodes = graphNodes as any[]; // Cast to any to access custom props
-      
+
       for (const other of nodes) {
           if (other.id === droppedNode.id) continue;
-          
+
           const dx = droppedNode.x - other.x;
           const dy = droppedNode.y - other.y;
           const distance = Math.sqrt(dx * dx + dy * dy);
-          
+
           // If dropped very close to another node (overlapping)
           if (distance < 20) {
               if (confirm(`Link "${droppedNode.title}" to "${other.title}"?`)) {

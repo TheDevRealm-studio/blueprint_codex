@@ -16,9 +16,9 @@ export default {
         'cyber-blue': '#3B82F6', // Neon Blue
         'cyber-text': '#94A3B8', // Muted Text
         'cyber-text-bright': '#E2E8F0', // Bright Text
-        
+
         // Legacy mappings for compatibility
-        'ue-dark': '#020408', 
+        'ue-dark': '#020408',
         'ue-panel': '#050A14',
         'ue-header': '#0A1020',
         'ue-selected': '#00FF9D', // Selection becomes green

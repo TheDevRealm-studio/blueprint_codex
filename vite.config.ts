@@ -13,9 +13,9 @@ export default defineConfig({
   envPrefix: ['VITE_', 'TAURI_'],
   optimizeDeps: {
     include: [
-      '@tauri-apps/api/fs', 
-      '@tauri-apps/api/path', 
-      '@tauri-apps/api/shell', 
+      '@tauri-apps/api/fs',
+      '@tauri-apps/api/path',
+      '@tauri-apps/api/shell',
       '@tauri-apps/api/dialog',
       '@tauri-apps/api/event',
       '@tauri-apps/api/window',

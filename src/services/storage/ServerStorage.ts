@@ -1,5 +1,5 @@
 import type { StorageAdapter } from './types';
-import type { Project } from '../../types';
+import type { Project, Asset } from '../../types';
 
 const API_URL = 'http://localhost:3001/api';
 const ASSETS_URL = 'http://localhost:3001/assets';
@@ -31,7 +31,7 @@ export class ServerStorage implements StorageAdapter {
     }
   }
 
-  async saveAsset(file: File): Promise<string> {
+  async saveAsset(file: File): Promise<Asset> {
     const formData = new FormData();
     formData.append('file', file);
 
@@ -41,12 +41,12 @@ export class ServerStorage implements StorageAdapter {
     });
 
     if (!res.ok) throw new Error('Failed to upload asset');
-    const data = await res.json();
-    return data.filename;
+    return await res.json();
   }
 
   async loadAsset(assetId: string): Promise<Blob | null> {
     try {
+      // Server handles resolution of ID to file
       const res = await fetch(`${ASSETS_URL}/${assetId}`);
       if (!res.ok) return null;
       return await res.blob();
@@ -58,5 +58,24 @@ export class ServerStorage implements StorageAdapter {
 
   async deleteAsset(assetId: string): Promise<void> {
     await fetch(`${API_URL}/assets/${assetId}`, { method: 'DELETE' });
+  }
+
+  async listAssets(): Promise<Asset[]> {
+    try {
+      const res = await fetch(`${API_URL}/assets`);
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (e) {
+      console.error('Failed to list assets from server', e);
+      return [];
+    }
+  }
+
+  async updateAsset(assetId: string, updates: Partial<Asset>): Promise<void> {
+      await fetch(`${API_URL}/assets/${assetId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updates)
+      });
   }
 }

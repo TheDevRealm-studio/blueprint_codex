@@ -41,13 +41,13 @@ function handlePaste(event: ClipboardEvent) {
       const blob = item.getAsFile();
       if (blob) {
         // Save to storage (Local or Browser)
-        storage.saveAsset(blob).then(assetId => {
+        storage.saveAsset(blob).then(asset => {
           const newBlock: Block = {
             id: crypto.randomUUID(),
             type: 'media',
             content: {
-              label: 'Pasted Image',
-              filePath: assetId, // Store ID instead of Data URL
+              label: asset.name,
+              filePath: asset.id, // Store ID instead of Data URL
               kind: 'image'
             },
             x: 100 + Math.random() * 50,
@@ -125,7 +125,7 @@ onUnmounted(() => {
             CANVAS
           </button>
         </div>
-        <button 
+        <button
           @click="showProperties = !showProperties"
           class="p-2 rounded hover:bg-cyber-green/10 transition-colors"
           :class="showProperties ? 'text-cyber-green' : 'text-cyber-text/50'"
@@ -144,11 +144,11 @@ onUnmounted(() => {
         <DocumentView v-if="activePage.viewMode === 'document'" :page-id="activePage.id" />
         <CanvasView v-else :page-id="activePage.id" />
       </div>
-      
+
       <!-- Properties Panel -->
       <PageProperties v-if="showProperties" :page-id="activePage.id" />
     </div>
-    
+
     <div v-else class="flex-1 flex items-center justify-center text-gray-500 italic">
       No page open. Select a page from the sidebar or create a new one.
     </div>

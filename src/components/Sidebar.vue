@@ -1,14 +1,52 @@
 <script setup lang="ts">
 import { useProjectStore } from '../stores/project';
 import { storeToRefs } from 'pinia';
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
 import FileSystemItem from './FileSystemItem.vue';
 import InputModal from './InputModal.vue';
-import type { FileSystemNode } from '../types';
+import type { FileSystemNode, Asset } from '../types';
+import { storage } from '../services/storage';
 
 const store = useProjectStore();
 const { project, projects, currentProjectId } = storeToRefs(store);
 const showProjectSelect = ref(false);
+
+// Tabs
+const activeTab = ref<'pages' | 'assets'>('pages');
+const assets = ref<Asset[]>([]);
+
+async function loadAssets() {
+  try {
+    assets.value = await storage.listAssets();
+  } catch (e) {
+    console.error('Failed to load assets in sidebar', e);
+  }
+}
+
+function onDragStartAsset(e: DragEvent, asset: Asset) {
+    if (e.dataTransfer) {
+        e.dataTransfer.setData('application/x-codex-asset', asset.id);
+        e.dataTransfer.effectAllowed = 'copy';
+    }
+}
+
+async function deleteAsset(asset: Asset) {
+    if(confirm(`Delete asset ${asset.name}?`)) {
+        await storage.deleteAsset(asset.id);
+        await loadAssets();
+    }
+}
+
+function renameAsset(asset: Asset) {
+    const newName = prompt('Rename asset:', asset.name);
+    if (newName && newName !== asset.name) {
+        storage.updateAsset(asset.id, { name: newName }).then(() => loadAssets());
+    }
+}
+
+onMounted(() => {
+    loadAssets();
+});
 
 // Modal State
 const modalState = ref<{
@@ -51,7 +89,7 @@ function openModal(mode: typeof modalState.value.mode, title: string, placeholde
 
 function handleModalConfirm(value: string, templateId?: string) {
   const { mode, targetId } = modalState.value;
-  
+
   switch (mode) {
     case 'createPage':
       store.addPage(value, undefined, templateId);
@@ -226,36 +264,95 @@ function importProject() {
       </div>
     </div>
 
-    <!-- Content Browser Header -->
-    <div class="px-3 py-2 flex justify-between items-center bg-cyber-panel border-b border-cyber-green/20">
-      <span class="text-xs font-bold text-cyber-green/70 uppercase tracking-wider flex items-center gap-2">
-        <span>></span> CONTENT_BROWSER
-      </span>
-      <div class="flex gap-1">
-        <button @click="createFolder" class="text-cyber-text hover:text-cyber-green transition-colors p-1 rounded hover:bg-cyber-green/10" title="New Folder">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>
-        </button>
-        <button @click="createPage" class="text-cyber-text hover:text-cyber-green transition-colors p-1 rounded hover:bg-cyber-green/10" title="New Page">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
-        </button>
-      </div>
+    <!-- Tabs -->
+    <div class="flex border-b border-cyber-green/20 bg-cyber-panel shrink-0">
+      <button 
+        @click="activeTab = 'pages'"
+        class="flex-1 py-2 text-[10px] font-bold tracking-wider transition-colors border-b-2"
+        :class="activeTab === 'pages' ? 'text-cyber-green border-cyber-green bg-cyber-green/5' : 'text-cyber-text/50 border-transparent hover:text-cyber-text hover:bg-cyber-green/5'"
+      >
+        PAGES
+      </button>
+      <button 
+        @click="activeTab = 'assets'; loadAssets()"
+        class="flex-1 py-2 text-[10px] font-bold tracking-wider transition-colors border-b-2"
+        :class="activeTab === 'assets' ? 'text-cyber-green border-cyber-green bg-cyber-green/5' : 'text-cyber-text/50 border-transparent hover:text-cyber-text hover:bg-cyber-green/5'"
+      >
+        ASSETS
+      </button>
     </div>
 
-    <!-- Tree View -->
-    <div class="flex-1 overflow-y-auto py-2 custom-scrollbar bg-cyber-dark/30">
-      <div v-if="!project || project.structure.length === 0" class="text-cyber-text/40 text-xs text-center mt-8 italic font-mono">
-        // NO_CONTENT_FOUND
-      </div>
-      <template v-else>
-        <FileSystemItem
-            v-for="node in project.structure"
-            :key="node.id"
-            :node="node"
-            :depth="0"
-            @node-context-menu="openContextMenu"
-        />
-      </template>
-    </div>
+    <!-- Pages Tab Content -->
+    <template v-if="activeTab === 'pages'">
+        <!-- Content Browser Header (Pages Actions) -->
+        <div class="px-3 py-2 flex justify-between items-center bg-cyber-panel/50 border-b border-cyber-green/10 shrink-0">
+          <span class="text-[10px] font-bold text-cyber-green/50 uppercase tracking-wider">STRUCTURE</span>
+          <div class="flex gap-1">
+            <button @click="createFolder" class="text-cyber-text hover:text-cyber-green transition-colors p-1 rounded hover:bg-cyber-green/10" title="New Folder">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>
+            </button>
+            <button @click="createPage" class="text-cyber-text hover:text-cyber-green transition-colors p-1 rounded hover:bg-cyber-green/10" title="New Page">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Tree View -->
+        <div class="flex-1 overflow-y-auto py-2 custom-scrollbar bg-cyber-dark/30">
+          <div v-if="!project || project.structure.length === 0" class="text-cyber-text/40 text-xs text-center mt-8 italic font-mono">
+            // NO_CONTENT_FOUND
+          </div>
+          <template v-else>
+            <FileSystemItem
+                v-for="node in project.structure"
+                :key="node.id"
+                :node="node"
+                :depth="0"
+                @node-context-menu="openContextMenu"
+            />
+          </template>
+        </div>
+    </template>
+
+    <!-- Assets Tab Content -->
+    <template v-else>
+        <div class="px-3 py-2 flex justify-between items-center bg-cyber-panel/50 border-b border-cyber-green/10 shrink-0">
+             <span class="text-[10px] font-bold text-cyber-green/50 uppercase tracking-wider">UPLOADED FILES</span>
+             <button @click="loadAssets" class="text-cyber-text hover:text-cyber-green transition-colors p-1 rounded hover:bg-cyber-green/10" title="Refresh">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+             </button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-2 custom-scrollbar bg-cyber-dark/30 grid grid-cols-2 gap-2 content-start">
+            <div 
+                v-for="asset in assets" 
+                :key="asset.id"
+                class="aspect-square bg-cyber-dark border border-cyber-green/10 rounded p-1 relative group cursor-grab active:cursor-grabbing hover:border-cyber-green/50 transition-colors"
+                draggable="true"
+                @dragstart="onDragStartAsset($event, asset)"
+                @dblclick="renameAsset(asset)"
+                :title="asset.name"
+            >
+                <!-- Preview -->
+                <div class="w-full h-full flex items-center justify-center bg-black/20 rounded overflow-hidden flex-col">
+                    <div class="text-2xl mb-1">
+                        {{ asset.type.startsWith('image') ? '🖼️' : asset.type.startsWith('video') ? '🎬' : '📄' }}
+                    </div>
+                    <span class="text-[10px] text-cyber-text/70 break-all text-center px-1 line-clamp-2">{{ asset.name }}</span>
+                </div>
+                
+                <!-- Delete Button -->
+                <button 
+                    @click.stop="deleteAsset(asset)"
+                    class="absolute top-1 right-1 bg-red-900/80 text-red-200 rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-xs hover:bg-red-700"
+                >
+                    ×
+                </button>
+            </div>
+             <div v-if="assets.length === 0" class="col-span-2 text-cyber-text/40 text-xs text-center mt-8 italic font-mono">
+                // NO_ASSETS
+            </div>
+        </div>
+    </template>
 
     <!-- Context Menu -->
     <div

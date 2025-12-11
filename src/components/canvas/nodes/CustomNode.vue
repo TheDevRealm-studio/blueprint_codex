@@ -14,7 +14,7 @@ import 'highlight.js/styles/atom-one-dark.css';
 const props = defineProps<{
   id: string;
   data: {
-    type: 'text' | 'steps' | 'media' | 'blueprint' | 'link' | 'code' | 'asset';
+    type: 'text' | 'steps' | 'media' | 'blueprint' | 'link' | 'code' | 'asset' | 'youtube' | 'website';
     content: any;
     label?: string;
     width?: number;
@@ -55,6 +55,8 @@ const headerColor = computed(() => {
     case 'link': return 'bg-green-700';
     case 'code': return 'bg-gray-800';
     case 'asset': return 'bg-teal-700';
+    case 'youtube': return 'bg-red-700';
+    case 'website': return 'bg-indigo-700';
     default: return 'bg-gray-700';
   }
 });
@@ -67,6 +69,8 @@ const icon = computed(() => {
     case 'link': return '🔗';
     case 'code': return '💻';
     case 'asset': return '📦';
+    case 'youtube': return '📺';
+    case 'website': return '🌐';
     default: return '📝';
   }
 });
@@ -142,6 +146,15 @@ function removePin(pinId: string) {
             }
         }
     }
+}
+
+function getEmbedUrl(url: string) {
+    if (!url) return '';
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2] && match[2].length === 11)
+      ? `https://www.youtube.com/embed/${match[2]}`
+      : url;
 }
 
 const assetInfo = computed(() => {
@@ -341,6 +354,64 @@ function onResizeEnd(event: any) {
         />
       </div>
 
+      <!-- YouTube Block -->
+      <div v-else-if="data.type === 'youtube'" class="w-full h-full flex flex-col gap-2 p-1">
+        <div class="flex-1 bg-black rounded overflow-hidden relative min-h-[150px]">
+            <iframe
+                width="100%"
+                height="100%"
+                :src="getEmbedUrl(data.content.url)"
+                frameborder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowfullscreen
+                class="absolute top-0 left-0 w-full h-full"
+            ></iframe>
+        </div>
+        <input
+            :value="data.content.title"
+            @input="(e: Event) => updateContent({ ...data.content, title: (e.target as HTMLInputElement).value })"
+            class="bg-transparent border-b border-gray-700 text-center text-xs text-gray-400 focus:outline-none focus:border-ue-selected"
+            placeholder="Title..."
+        />
+      </div>
+
+      <!-- Website Block -->
+      <div v-else-if="data.type === 'website'" class="w-full h-full flex flex-col bg-ue-panel border border-gray-700 rounded overflow-hidden group/web">
+
+        <!-- Preview Area -->
+        <div class="flex-1 relative bg-black overflow-hidden min-h-[150px]">
+            <!-- Image Preview -->
+            <img
+                v-if="data.content.imageUrl"
+                :src="data.content.imageUrl"
+                class="w-full h-full object-cover opacity-80 group-hover/web:opacity-100 transition-opacity"
+                alt="Link Preview"
+            />
+
+            <!-- Iframe Fallback (only if no image) -->
+            <iframe
+                v-else
+                width="100%"
+                height="100%"
+                :src="data.content.url"
+                frameborder="0"
+                class="absolute top-0 left-0 w-full h-full bg-white"
+            ></iframe>
+
+            <!-- Overlay Link Icon -->
+            <a :href="data.content.url" target="_blank" class="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover/web:opacity-100 transition-opacity z-10">
+                <span class="text-4xl drop-shadow-lg">🔗</span>
+            </a>
+        </div>
+
+        <!-- Info Area -->
+        <div class="p-2 flex flex-col gap-1 bg-ue-dark border-t border-gray-700">
+            <div class="font-bold text-xs text-white truncate" :title="data.content.title">{{ data.content.title || data.content.url }}</div>
+            <div v-if="data.content.description" class="text-[10px] text-gray-400 line-clamp-2 leading-tight">{{ data.content.description }}</div>
+            <div class="text-[9px] text-ue-accent truncate opacity-70">{{ data.content.url }}</div>
+        </div>
+      </div>
+
       <!-- Blueprint Block -->
       <div v-else-if="data.type === 'blueprint'" class="w-full h-full min-h-[100px] flex flex-col">
         <div v-if="!data.content.blueprintString" class="text-xs text-gray-500 italic text-center p-4">
@@ -441,11 +512,11 @@ function onResizeEnd(event: any) {
                 placeholder="Search Asset or Paste Reference..."
                 @change="(e: Event) => updateContent({ reference: (e.target as HTMLInputElement).value })"
             />
-            
+
             <!-- Autocomplete Results -->
             <div v-if="showAssetResults && assetSearchResults.length > 0" class="absolute top-full left-0 w-full bg-ue-panel border border-gray-700 shadow-xl z-50 max-h-40 overflow-y-auto mt-1 rounded">
-              <div 
-                v-for="asset in assetSearchResults" 
+              <div
+                v-for="asset in assetSearchResults"
                 :key="asset.fullPath"
                 @mousedown="selectAsset(asset)"
                 class="px-2 py-1 hover:bg-ue-accent hover:text-white cursor-pointer text-xs flex flex-col border-b border-gray-800 last:border-0"

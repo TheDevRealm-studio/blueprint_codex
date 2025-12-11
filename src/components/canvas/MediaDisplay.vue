@@ -11,6 +11,7 @@ const props = defineProps<{
 const resolvedUrl = ref<string>('');
 const loading = ref(false);
 const error = ref<string | null>(null);
+const assetName = ref<string>('');
 
 async function loadMedia() {
   if (!props.src) return;
@@ -34,6 +35,19 @@ async function loadMedia() {
     } else {
       error.value = 'File not found';
     }
+    
+    // Try to load metadata for name if not provided
+    if (!props.label) {
+        // We can't easily get metadata here without a new storage method or just listing all.
+        // But we can try to list and find? No that's slow.
+        // For now, we rely on the parent passing the label, or we accept that we don't show it here.
+        // But wait, the user wants "everything gets updated as referenced".
+        // If the parent block has a label, it uses that.
+        // If we want the label to be dynamic based on the asset name, the parent block should probably NOT store the label,
+        // or we should fetch it here.
+        // Let's add getAssetMetadata to storage?
+    }
+
   } catch (e) {
     error.value = 'Error loading file';
     console.error(e);

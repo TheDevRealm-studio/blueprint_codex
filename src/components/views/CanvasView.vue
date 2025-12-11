@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import { useProjectStore } from '../../stores/project';
-import type { Block, LinkBlock, Edge as BlockEdge } from '../../types';
+import { storage } from '../../services/storage';
+import type { Block, LinkBlock, Edge as BlockEdge, YoutubeBlock, WebsiteBlock, MediaBlock } from '../../types';
 import { VueFlow, useVueFlow, type Node, type Edge, type Connection } from '@vue-flow/core';
 import { Background } from '@vue-flow/background';
 import { Controls } from '@vue-flow/controls';
@@ -61,6 +62,8 @@ function getBlockLabel(block: Block) {
     if (block.type === 'steps') return 'Steps';
     if (block.type === 'blueprint') return 'Blueprint';
     if (block.type === 'asset') return 'Asset';
+    if (block.type === 'youtube') return 'YouTube';
+    if (block.type === 'website') return 'Website';
     return 'Note';
 }
 
@@ -98,7 +101,24 @@ onNodeDragStop((e) => {
   store.updatePage(page.value.id, { blocks: updatedBlocks });
 });
 
-function onDrop(event: DragEvent) {
+const isDragging = ref(false);
+
+function onDragEnter() {
+    isDragging.value = true;
+}
+
+function onDragLeave(e: DragEvent) {
+    // Only set to false if we're leaving the main container, not entering a child
+    if (e.currentTarget === e.target) {
+        isDragging.value = false;
+    }
+}
+
+async function onDrop(event: DragEvent) {
+  isDragging.value = false;
+  console.log('Drop event detected', event);
+
+  // 1. Handle Internal Page Links
   const pageId = event.dataTransfer?.getData('application/x-codex-page');
   if (pageId && store.project && page.value) {
      const targetPage = store.project.pages[pageId];
@@ -124,8 +144,234 @@ function onDrop(event: DragEvent) {
         const currentBlocks = page.value.blocks || [];
         store.updatePage(page.value.id, { blocks: [...currentBlocks, newBlock] });
      }
+     return;
+  }
+
+  // 1.5 Handle Internal Assets
+  const assetId = event.dataTransfer?.getData('application/x-codex-asset');
+  if (assetId && page.value) {
+      const position = screenToFlowCoordinate({
+        x: event.clientX,
+        y: event.clientY,
+      });
+      
+      createMediaBlock(assetId, position.x, position.y);
+      return;
+  }
+
+  // 2. Handle Files (Images/Videos)
+  const files = event.dataTransfer?.files;
+  if (files && files.length > 0 && page.value) {
+      console.log('Processing dropped files:', files.length);
+
+      const position = screenToFlowCoordinate({
+        x: event.clientX,
+        y: event.clientY,
+      });
+
+      // Process files in background without blocking UI
+      handleDroppedFiles(Array.from(files), position);
+  } else {
+      console.log('No files found in drop event. DataTransfer types:', event.dataTransfer?.types);
   }
 }
+
+async function handleDroppedFiles(fileArray: File[], position: { x: number; y: number }) {
+  const pageId = props.pageId;
+
+  for (let i = 0; i < fileArray.length; i++) {
+      const file = fileArray[i];
+      if (!file) continue;
+
+      let kind: 'image' | 'video' | null = null;
+
+      if (file.type.startsWith('image/')) kind = 'image';
+      else if (file.type.startsWith('video/')) kind = 'video';
+
+      if (!kind) {
+          console.log('Skipping file (not image/video):', file.name, file.type);
+          continue;
+      }
+
+      try {
+          console.log('Starting upload for file:', file.name);
+          let assetId = '';
+          let assetName = file.name;
+
+          // Try to save to storage, fallback to blob URL if it fails
+          try {
+              const asset = await storage.saveAsset(file);
+              assetId = asset.id;
+              assetName = asset.name;
+              console.log('File uploaded to storage, id:', assetId);
+          } catch (storageError) {
+              console.warn('Storage save failed, using blob URL:', storageError);
+              assetId = URL.createObjectURL(file);
+          }
+
+          // Ensure we still have a valid page reference
+          const currentPage = store.project?.pages[pageId];
+          if (!currentPage) {
+              console.error('Page reference lost during file upload');
+              return;
+          }
+
+          const newBlock: MediaBlock = {
+              id: crypto.randomUUID(),
+              type: 'media',
+              content: {
+                  label: assetName,
+                  filePath: assetId,
+                  kind: kind
+              },
+              x: position.x + (i * 50),
+              y: position.y + (i * 50),
+              width: kind === 'video' ? 400 : 300,
+              height: 300
+          };
+
+          console.log('Creating block for:', file.name);
+          const updatedBlocks = [...currentPage.blocks, newBlock];
+          store.updatePage(pageId, { blocks: updatedBlocks });
+          console.log('Block created and page updated');
+
+      } catch (e) {
+          console.error('Failed to process dropped file:', file.name, e);
+      }
+  }
+  console.log('Finished processing all dropped files');
+}
+
+// --- Paste Handler ---
+
+async function handlePaste(event: ClipboardEvent) {
+    if (!page.value) return;
+
+    const items = event.clipboardData?.items;
+    if (!items) return;
+
+    // Calculate position (center of screen or mouse position if we tracked it)
+    // For now, let's use a random offset from center or just a fixed point + random
+    const x = 200 + Math.random() * 50;
+    const y = 200 + Math.random() * 50;
+
+    for (const item of items) {
+        if (item.kind === 'string' && item.type === 'text/plain') {
+            item.getAsString((text) => {
+                if (isValidUrl(text)) {
+                    if (isYoutubeUrl(text)) {
+                        createYoutubeBlock(text, x, y);
+                    } else {
+                        createWebsiteBlock(text, x, y);
+                    }
+                }
+            });
+        } else if (item.kind === 'file' && item.type.startsWith('image/')) {
+            const file = item.getAsFile();
+            if (file) {
+                try {
+                    const asset = await storage.saveAsset(file);
+                    createMediaBlock(asset.id, x, y);
+                } catch (e) {
+                    console.warn('Failed to save asset to storage, using blob URL fallback', e);
+                    const blobUrl = URL.createObjectURL(file);
+                    createMediaBlock(blobUrl, x, y);
+                }
+            }
+        }
+    }
+}
+
+function isValidUrl(string: string) {
+    try {
+        new URL(string);
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
+function isYoutubeUrl(url: string) {
+    return url.includes('youtube.com') || url.includes('youtu.be');
+}
+
+function createYoutubeBlock(url: string, x: number, y: number) {
+    if (!page.value) return;
+    const newBlock: YoutubeBlock = {
+        id: crypto.randomUUID(),
+        type: 'youtube',
+        content: { url, title: 'YouTube Video' },
+        x, y, width: 400, height: 300
+    };
+    store.updatePage(page.value.id, { blocks: [...page.value.blocks, newBlock] });
+}
+
+async function createWebsiteBlock(url: string, x: number, y: number) {
+    if (!page.value) return;
+
+    let title = 'Website Link';
+    let description = '';
+    let imageUrl = '';
+
+    try {
+        // Fetch metadata from our local server proxy
+        const res = await fetch(`http://localhost:3001/api/metadata?url=${encodeURIComponent(url)}`);
+        if (res.ok) {
+            const data = await res.json();
+            title = data.title || title;
+            description = data.description || '';
+            imageUrl = data.image || '';
+        }
+    } catch (e) {
+        console.error('Failed to fetch metadata', e);
+    }
+
+    const newBlock: WebsiteBlock = {
+        id: crypto.randomUUID(),
+        type: 'website',
+        content: { url, title, description, imageUrl },
+        x, y, width: 400, height: 300
+    };
+
+    // Get latest state
+    const currentPage = store.project?.pages[props.pageId];
+    if (currentPage) {
+        store.updatePage(props.pageId, { blocks: [...currentPage.blocks, newBlock] });
+    }
+}
+
+function createMediaBlock(assetId: string, x: number, y: number) {
+    if (!page.value) return;
+
+    // We don't have the full asset metadata here synchronously, but we can fetch it or just use the ID.
+    // The MediaDisplay component will handle loading.
+    // We can try to guess the kind if we had the metadata, but for now default to 'image' and let MediaDisplay handle it?
+    // Actually, MediaDisplay needs 'kind' prop.
+    // Let's fetch metadata quickly or just default.
+    
+    storage.loadAsset(assetId).then(blob => {
+        let kind: 'image' | 'video' = 'image';
+        if (blob) {
+             if (blob.type.startsWith('video')) kind = 'video';
+        }
+
+        const newBlock: MediaBlock = {
+            id: crypto.randomUUID(),
+            type: 'media',
+            content: { label: 'Asset', filePath: assetId, kind },
+            x, y, width: 300, height: 300
+        };
+        store.updatePage(page.value!.id, { blocks: [...page.value!.blocks, newBlock] });
+    });
+}
+
+onMounted(() => {
+    window.addEventListener('paste', handlePaste);
+});
+
+onUnmounted(() => {
+    window.removeEventListener('paste', handlePaste);
+});
 
 // --- Toolbar ---
 
@@ -175,7 +421,20 @@ function getDefaultContent(type: Block['type']) {
 </script>
 
 <template>
-  <div class="w-full h-full bg-ue-dark relative" @drop.prevent="onDrop" @dragover.prevent>
+  <div
+    class="w-full h-full bg-ue-dark relative"
+    @drop.prevent="onDrop"
+    @dragover.prevent
+    @dragenter.prevent="onDragEnter"
+    @dragleave.prevent="onDragLeave"
+  >
+    <!-- Drag Overlay -->
+    <div v-if="isDragging" class="absolute inset-0 z-50 bg-ue-accent/20 border-4 border-ue-accent flex items-center justify-center pointer-events-none">
+        <div class="text-white text-2xl font-bold bg-black/80 px-6 py-4 rounded-lg shadow-xl border border-ue-accent backdrop-blur-sm">
+            Drop to Add Media
+        </div>
+    </div>
+
     <VueFlow
       v-model:nodes="nodes"
       v-model:edges="edges"

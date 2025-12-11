@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, onMounted, watch } from 'vue';
 import { useProjectStore } from '../../stores/project';
+import { storage } from '../../services/storage';
 import { marked } from 'marked';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/atom-one-dark.css';
@@ -11,6 +12,25 @@ const store = useProjectStore();
 const showPreview = ref(true);
 
 const page = computed(() => store.project?.pages[props.pageId]);
+
+// Asset Resolution for Preview
+const resolvedAssets = ref<Record<string, string>>({});
+
+async function resolveAsset(assetId: string) {
+    if (resolvedAssets.value[assetId]) return resolvedAssets.value[assetId];
+    
+    try {
+        const blob = await storage.loadAsset(assetId);
+        if (blob) {
+            const url = URL.createObjectURL(blob);
+            resolvedAssets.value[assetId] = url;
+            return url;
+        }
+    } catch (e) {
+        console.error('Failed to resolve asset for preview', assetId);
+    }
+    return '';
+}
 
 interface ContentSegment {
   type: 'text' | 'blueprint';
@@ -52,6 +72,48 @@ function renderMarkdown(text: string) {
     const validLang = lang && hljs.getLanguage(lang) ? lang : 'plaintext';
     const highlighted = hljs.highlight(text, { language: validLang }).value;
     return `<pre><code class="hljs language-${validLang}">${highlighted}</code></pre>`;
+  };
+
+  renderer.image = ({ href, title, text }) => {
+      // Check if href is a UUID (simple check: no http/https/blob)
+      if (href && !href.startsWith('http') && !href.startsWith('blob:') && !href.startsWith('data:')) {
+          // It's likely an asset ID.
+          // We return a placeholder that we can hydrate or just use the resolved URL if available.
+          // Since render is synchronous, we can't await.
+          // We'll use a data attribute and let a watcher/observer handle it, 
+          // OR check our reactive cache.
+          
+          const resolved = resolvedAssets.value[href];
+          if (!resolved) {
+              // Trigger load
+              resolveAsset(href);
+              return `<div class="loading-asset" data-asset-id="${href}">Loading ${text}...</div>`;
+          }
+          
+          // Check if it's a video (we need metadata or guess from extension if available in ID, but ID is just UUID usually)
+          // Actually, we stored the extension in the filename in storage, but here we just have ID.
+          // We can try to guess from the resolved blob type if we had it, but we just have URL.
+          // Let's assume image for standard markdown image syntax, unless we use a custom syntax for video.
+          // OR, we can check the blob type in resolveAsset and store it.
+          
+          return `<img src="${resolved}" alt="${text}" title="${title || ''}" class="max-w-full rounded border border-cyber-green/20" />`;
+      }
+      return `<img src="${href}" alt="${text}" title="${title || ''}" class="max-w-full rounded border border-cyber-green/20" />`;
+  };
+
+  renderer.html = (html) => {
+      // Intercept video tags to resolve src if it's an asset ID
+      return html.replace(/<video src="([^"]+)"/g, (match, src) => {
+          if (src && !src.startsWith('http') && !src.startsWith('blob:') && !src.startsWith('data:')) {
+              const resolved = resolvedAssets.value[src];
+              if (!resolved) {
+                  resolveAsset(src);
+                  return `<video src="" data-asset-id="${src}"`;
+              }
+              return `<video src="${resolved}"`;
+          }
+          return match;
+      });
   };
 
   // Regex for [[Page Name]] or [[Page Name|Label]]
@@ -112,11 +174,11 @@ const filteredPages = computed(() => {
 
 function handleInput(e: Event) {
   updateMarkdown(e);
-  
+
   const target = e.target as HTMLTextAreaElement;
   const cursor = target.selectionStart;
   const text = target.value;
-  
+
   // Check for [[ trigger
   const lastTwoChars = text.slice(cursor - 2, cursor);
   if (lastTwoChars === '[[') {
@@ -142,22 +204,22 @@ function updateAutocompletePos(textarea: HTMLTextAreaElement) {
   // For now, just show near cursor or fixed position
   // A real implementation would calculate pixel coordinates
   const { offsetLeft, offsetTop } = textarea;
-  autocompletePos.value = { top: offsetTop + 20, left: offsetLeft + 20 }; 
+  autocompletePos.value = { top: offsetTop + 20, left: offsetLeft + 20 };
 }
 
 function selectAutocomplete(pageTitle: string) {
   if (!textareaRef.value || !page.value) return;
-  
+
   const textarea = textareaRef.value;
   const cursor = textarea.selectionStart;
   const text = textarea.value;
   const lastOpen = text.lastIndexOf('[[', cursor);
-  
+
   if (lastOpen !== -1) {
     const newText = text.slice(0, lastOpen) + `[[${pageTitle}]]` + text.slice(cursor);
     store.updatePage(page.value.id, { markdownBody: newText });
     showAutocomplete.value = false;
-    
+
     setTimeout(() => {
       textarea.focus();
       const newCursor = lastOpen + pageTitle.length + 4;
@@ -168,7 +230,7 @@ function selectAutocomplete(pageTitle: string) {
 
 function handleKeydown(e: KeyboardEvent) {
   if (!showAutocomplete.value) return;
-  
+
   if (e.key === 'ArrowDown') {
     e.preventDefault();
     autocompleteIndex.value = (autocompleteIndex.value + 1) % filteredPages.value.length;
@@ -177,39 +239,139 @@ function handleKeydown(e: KeyboardEvent) {
     autocompleteIndex.value = (autocompleteIndex.value - 1 + filteredPages.value.length) % filteredPages.value.length;
   } else if (e.key === 'Enter') {
     e.preventDefault();
-    if (filteredPages.value[autocompleteIndex.value]) {
-      selectAutocomplete(filteredPages.value[autocompleteIndex.value].title);
+    const selectedPage = filteredPages.value[autocompleteIndex.value];
+    if (selectedPage) {
+      selectAutocomplete(selectedPage.title);
     }
   } else if (e.key === 'Escape') {
     showAutocomplete.value = false;
   }
 }
 
+function insertText(prefix: string, suffix: string = '') {
+  if (!textareaRef.value || !page.value) return;
+
+  const textarea = textareaRef.value;
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const text = textarea.value;
+  const selectedText = text.substring(start, end);
+
+  const newText = text.substring(0, start) + prefix + selectedText + suffix + text.substring(end);
+  store.updatePage(page.value.id, { markdownBody: newText });
+
+  setTimeout(() => {
+    textarea.focus();
+    // If text was selected, keep it selected inside the tags
+    if (start !== end) {
+        textarea.setSelectionRange(start + prefix.length, end + prefix.length);
+    } else {
+        // If no text selected, place cursor between tags
+        textarea.setSelectionRange(start + prefix.length, start + prefix.length);
+    }
+  }, 0);
+}
+
 function handleDrop(e: DragEvent) {
+  e.preventDefault();
+  const textarea = e.target as HTMLTextAreaElement;
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const text = textarea.value;
+
+  // 1. Handle Internal Page Links
   const pageId = e.dataTransfer?.getData('application/x-codex-page');
-  if (pageId && store.project && page.value) {
-    // We handle the insertion manually to ensure [[Link]] format
-    e.preventDefault();
-    
+  if (pageId && store.project) {
     const targetPage = store.project.pages[pageId];
     if (targetPage) {
       const linkText = `[[${targetPage.title}]]`;
-      const textarea = e.target as HTMLTextAreaElement;
-      
-      // Browser updates selectionStart during dragover (if we don't preventDefault it)
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      const text = textarea.value;
-      
       const newText = text.substring(0, start) + linkText + text.substring(end);
+      store.updatePage(page.value!.id, { markdownBody: newText });
       
-      store.updatePage(page.value.id, { markdownBody: newText });
-      
-      // Restore focus and place cursor after link
       setTimeout(() => {
           textarea.focus();
           textarea.setSelectionRange(start + linkText.length, start + linkText.length);
       }, 0);
+      return;
+    }
+  }
+
+  // 2. Handle Internal Assets (from Sidebar)
+  const assetId = e.dataTransfer?.getData('application/x-codex-asset');
+  if (assetId) {
+      const linkText = `![Asset](${assetId})`;
+      const newText = text.substring(0, start) + linkText + text.substring(end);
+      store.updatePage(page.value!.id, { markdownBody: newText });
+      return;
+  }
+
+  // 3. Handle External Files
+  const files = e.dataTransfer?.files;
+  if (files && files.length > 0) {
+      handleDroppedFiles(files, start, end, text);
+  }
+}
+
+async function handleDroppedFiles(files: FileList, start: number, end: number, currentText: string) {
+    let insertion = '';
+    
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        try {
+            const asset = await storage.saveAsset(file);
+            if (file.type.startsWith('image/')) {
+                insertion += `![${file.name}](${asset.id})\n`;
+            } else if (file.type.startsWith('video/')) {
+                // Use HTML for video as markdown doesn't support it natively
+                // We need a way to resolve this ID in the renderer too.
+                // For now, let's use a custom syntax or just HTML with a special class
+                insertion += `<video src="${asset.id}" controls class="w-full max-h-96"></video>\n`;
+            } else {
+                insertion += `[${file.name}](${asset.id})\n`;
+            }
+        } catch (e) {
+            console.error('Failed to upload file', file.name, e);
+        }
+    }
+
+    if (insertion && page.value) {
+        const newText = currentText.substring(0, start) + insertion + currentText.substring(end);
+        store.updatePage(page.value.id, { markdownBody: newText });
+    }
+}
+
+async function handlePaste(e: ClipboardEvent) {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (item.type.indexOf('image') !== -1 || item.type.indexOf('video') !== -1) {
+      e.preventDefault();
+      const file = item.getAsFile();
+      if (file) {
+        try {
+            const asset = await storage.saveAsset(file);
+            if (page.value) {
+                const textarea = e.target as HTMLTextAreaElement;
+                const start = textarea.selectionStart;
+                const end = textarea.selectionEnd;
+                const text = textarea.value;
+                
+                let insertion = '';
+                if (file.type.startsWith('image/')) {
+                    insertion = `![${file.name}](${asset.id})`;
+                } else if (file.type.startsWith('video/')) {
+                    insertion = `<video src="${asset.id}" controls class="w-full max-h-96"></video>`;
+                }
+                
+                const newText = text.substring(0, start) + insertion + text.substring(end);
+                store.updatePage(page.value.id, { markdownBody: newText });
+            }
+        } catch (err) {
+            console.error('Failed to paste media', err);
+        }
+      }
     }
   }
 }
@@ -227,7 +389,7 @@ function handleEditorContextMenu(e: MouseEvent) {
     x: e.clientX,
     y: e.clientY
   };
-  
+
   const closeMenu = () => {
     editorContextMenu.value.visible = false;
     window.removeEventListener('click', closeMenu);
@@ -238,21 +400,21 @@ function handleEditorContextMenu(e: MouseEvent) {
 
 function triggerInsertLink() {
   if (!textareaRef.value || !page.value) return;
-  
+
   const textarea = textareaRef.value;
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
   const text = textarea.value;
-  
+
   // Insert [[
   const newText = text.substring(0, start) + '[[' + text.substring(end);
   store.updatePage(page.value.id, { markdownBody: newText });
-  
+
   // Move cursor and trigger autocomplete
   setTimeout(() => {
     textarea.focus();
     textarea.setSelectionRange(start + 2, start + 2);
-    
+
     showAutocomplete.value = true;
     autocompleteQuery.value = '';
     updateAutocompletePos(textarea);
@@ -263,7 +425,7 @@ function triggerInsertLink() {
 <template>
   <div class="flex h-full relative font-mono" v-if="page">
     <!-- Context Menu -->
-    <div v-if="editorContextMenu.visible" 
+    <div v-if="editorContextMenu.visible"
          class="fixed z-50 bg-cyber-panel border border-cyber-green/30 shadow-[0_0_15px_rgba(0,0,0,0.5)] rounded py-1 min-w-[150px]"
          :style="{ top: editorContextMenu.y + 'px', left: editorContextMenu.x + 'px' }">
       <div @click="triggerInsertLink" class="px-4 py-1 text-sm text-cyber-text hover:bg-cyber-green/20 hover:text-cyber-green cursor-pointer flex items-center gap-2">
@@ -272,10 +434,10 @@ function triggerInsertLink() {
     </div>
 
     <!-- Autocomplete Popup -->
-    <div v-if="showAutocomplete && filteredPages.length > 0" 
+    <div v-if="showAutocomplete && filteredPages.length > 0"
          class="absolute z-50 bg-cyber-panel border border-cyber-green/30 shadow-[0_0_20px_rgba(0,0,0,0.5)] rounded w-64 overflow-hidden"
          :style="{ top: '40px', left: '20px' }"> <!-- Fixed position for stability -->
-      <div v-for="(p, i) in filteredPages" 
+      <div v-for="(p, i) in filteredPages"
            :key="p.id"
            class="px-3 py-2 text-sm cursor-pointer hover:bg-cyber-green/10 border-l-2 border-transparent"
            :class="{ 'bg-cyber-green/5 text-cyber-green border-cyber-green': i === autocompleteIndex, 'text-cyber-text': i !== autocompleteIndex }"
@@ -285,17 +447,32 @@ function triggerInsertLink() {
     </div>
 
     <div class="h-full border-r border-cyber-green/20 flex flex-col transition-all duration-300" :class="showPreview ? 'w-1/2' : 'w-full'">
-      <div class="bg-cyber-panel px-4 py-2 flex justify-between items-center border-b border-cyber-green/20">
-        <span class="text-xs text-cyber-text/70 uppercase tracking-wider font-bold font-mono flex items-center gap-2">
-          <span class="text-cyber-purple">&lt;&gt;</span> SOURCE_CODE
-        </span>
+      <!-- Toolbar -->
+      <div class="bg-cyber-panel px-2 py-1 flex items-center gap-1 border-b border-cyber-green/20 overflow-x-auto custom-scrollbar">
+        <button @click="insertText('**', '**')" class="p-1.5 rounded hover:bg-cyber-green/10 text-cyber-text hover:text-cyber-green transition-colors" title="Bold">
+            <span class="font-bold">B</span>
+        </button>
+        <button @click="insertText('*', '*')" class="p-1.5 rounded hover:bg-cyber-green/10 text-cyber-text hover:text-cyber-green transition-colors" title="Italic">
+            <span class="italic">I</span>
+        </button>
+        <div class="w-[1px] h-4 bg-cyber-green/20 mx-1"></div>
+        <button @click="insertText('# ')" class="p-1.5 rounded hover:bg-cyber-green/10 text-cyber-text hover:text-cyber-green transition-colors" title="Heading 1">H1</button>
+        <button @click="insertText('## ')" class="p-1.5 rounded hover:bg-cyber-green/10 text-cyber-text hover:text-cyber-green transition-colors" title="Heading 2">H2</button>
+        <button @click="insertText('### ')" class="p-1.5 rounded hover:bg-cyber-green/10 text-cyber-text hover:text-cyber-green transition-colors" title="Heading 3">H3</button>
+        <div class="w-[1px] h-4 bg-cyber-green/20 mx-1"></div>
+        <button @click="insertText('[[', ']]')" class="p-1.5 rounded hover:bg-cyber-green/10 text-cyber-text hover:text-cyber-green transition-colors" title="Link Page">🔗</button>
+        <button @click="insertText('```blueprint\n', '\n```')" class="p-1.5 rounded hover:bg-cyber-green/10 text-cyber-text hover:text-cyber-green transition-colors" title="Code Block">🕸️</button>
+        
+        <div class="flex-1"></div>
+        
         <button
           @click="showPreview = !showPreview"
-          class="text-xs text-cyber-purple hover:text-cyber-green font-mono transition-colors"
+          class="text-xs text-cyber-purple hover:text-cyber-green font-mono transition-colors px-2"
         >
-          {{ showPreview ? '[ HIDE_PREVIEW ]' : '[ SHOW_PREVIEW ]' }}
+          {{ showPreview ? '[ HIDE ]' : '[ PREVIEW ]' }}
         </button>
       </div>
+
       <textarea
         ref="textareaRef"
         class="flex-1 bg-cyber-dark/80 text-cyber-text p-4 resize-none focus:outline-none font-mono text-sm custom-scrollbar selection:bg-cyber-green/30 selection:text-cyber-green"
@@ -303,7 +480,10 @@ function triggerInsertLink() {
         @input="handleInput"
         @keydown="handleKeydown"
         @drop="handleDrop"
+        @dragover.prevent
+        @paste="handlePaste"
         @contextmenu.prevent="handleEditorContextMenu"
+        placeholder="Start typing... Use [[ to link pages, drag & drop images/videos."
       ></textarea>
     </div>
     <div v-if="showPreview" class="w-1/2 h-full flex flex-col bg-cyber-dark/80 border-l border-cyber-green/20">

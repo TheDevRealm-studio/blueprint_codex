@@ -76,6 +76,54 @@ app.delete('/api/assets/:filename', async (req, res) => {
   }
 });
 
+// List Assets
+app.get('/api/assets', async (req, res) => {
+  try {
+    const files = await fs.readdir(ASSETS_DIR);
+    res.json(files.filter(f => !f.startsWith('.')));
+  } catch (e) {
+    console.error(e);
+    res.json([]);
+  }
+});
+
+// Fetch URL Metadata (Open Graph)
+app.get('/api/metadata', async (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: 'URL is required' });
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; BlueprintCodex/1.0; +http://localhost:3000)'
+      }
+    });
+    const html = await response.text();
+
+    // Simple Regex extraction for OG tags and Title
+    const getMeta = (prop) => {
+      const match = html.match(new RegExp(`<meta property="${prop}" content="([^"]*)"`, 'i')) ||
+                    html.match(new RegExp(`<meta name="${prop}" content="([^"]*)"`, 'i'));
+      return match ? match[1] : null;
+    };
+
+    const title = getMeta('og:title') ||
+                  (html.match(/<title>([^<]*)<\/title>/i) ? html.match(/<title>([^<]*)<\/title>/i)[1] : '') ||
+                  url;
+
+    const description = getMeta('og:description') ||
+                        getMeta('description') || '';
+
+    const image = getMeta('og:image') || '';
+
+    res.json({ title, description, image, url });
+  } catch (e) {
+    console.error('Failed to fetch metadata for', url, e);
+    // Return basic info if fetch fails
+    res.json({ title: url, description: '', image: '', url });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`💾 Storage Server running at http://localhost:${PORT}`);
   console.log(`📂 Saving data to: ${DATA_DIR}`);

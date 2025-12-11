@@ -42,7 +42,8 @@
         "resizable": true,
         "title": "Blueprint Codex",
         "width": 1200,
-        "height": 800
+        "height": 800,
+        "fileDropEnabled": false
       }
     ]
   }

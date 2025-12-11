@@ -101,7 +101,7 @@ const commands = computed<Command[]>(() => {
 const filteredCommands = computed(() => {
   if (!searchQuery.value) return commands.value.filter(c => c.type === 'action').slice(0, 10);
   const query = searchQuery.value.toLowerCase();
-  
+
   return commands.value
     .map(cmd => {
       let score = 0;
@@ -217,7 +217,7 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
-    
+
     <InputModal
       :show="modalState.show"
       :title="modalState.title"
