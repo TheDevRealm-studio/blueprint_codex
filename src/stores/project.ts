@@ -1,47 +1,74 @@
 import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
-import type { Project, DocPage } from '../types';
+import type { Project, DocPage, FileSystemNode } from '../types';
 import { storage } from '../services/storage';
 
 export const useProjectStore = defineStore('project', () => {
   const projects = ref<Project[]>([]);
   const currentProjectId = ref<string | null>(null);
   const activePageId = ref<string | null>(null);
+  const openPageIds = ref<string[]>([]);
+  const viewMode = ref<'editor' | 'graph'>('editor');
 
   // Initialize
   async function init() {
     const loaded = await storage.loadProjects();
     if (loaded.length > 0) {
-      projects.value = loaded;
-      // Try to restore last session ID if we stored it separately,
-      // or just pick the first one.
-      // For now, let's default to the first one if not set.
-      if (!currentProjectId.value && loaded[0]) {
-        currentProjectId.value = loaded[0].id;
+      // Migration: Convert old array-based pages to new structure if needed
+      projects.value = loaded.map(p => {
+        if (Array.isArray(p.pages)) {
+           const newPages: Record<string, DocPage> = {};
+           const newStructure: FileSystemNode[] = [];
+           // @ts-ignore - handling legacy data
+           (p.pages as DocPage[]).forEach(page => {
+             newPages[page.id] = page;
+             newStructure.push({
+               id: crypto.randomUUID(),
+               name: page.title,
+               type: 'page',
+               pageId: page.id
+             });
+           });
+           return {
+             ...p,
+             pages: newPages,
+             structure: newStructure
+           } as Project;
+        }
+        return p;
+      });
+
+      if (!currentProjectId.value && projects.value[0]) {
+        currentProjectId.value = projects.value[0].id;
       }
     } else {
       // Default project
-      const defaultProject: Project = {
-        id: crypto.randomUUID(),
-        name: 'My Unreal Project',
-        pages: [],
-        media: []
-      };
-      projects.value.push(defaultProject);
-      currentProjectId.value = defaultProject.id;
+      createProject('My Unreal Project');
     }
   }
 
   // Call init immediately
   init();
 
+  async function useFileSystem(handle: any) {
+      const { FileSystemStorage } = await import('../services/storage/FileSystemStorage');
+      const fsStorage = new FileSystemStorage(handle);
+      // @ts-ignore
+      storage.setAdapter(fsStorage);
+
+      // Reload
+      projects.value = [];
+      currentProjectId.value = null;
+      activePageId.value = null;
+      openPageIds.value = [];
+      await init();
+  }
+
   // Persist changes
   watch([projects], () => {
     storage.saveProjects(projects.value);
   }, { deep: true });
 
-  // We can persist currentProjectId in localStorage separately for UI state
-  // or add it to the storage interface. For now, let's keep UI state simple.
   const storedId = localStorage.getItem('codex-active-project');
   if (storedId) currentProjectId.value = storedId;
 
@@ -53,11 +80,17 @@ export const useProjectStore = defineStore('project', () => {
     projects.value.find(p => p.id === currentProjectId.value) || projects.value[0]
   );
 
+  const activePage = computed(() => {
+    if (!project.value || !activePageId.value) return null;
+    return project.value.pages[activePageId.value];
+  });
+
   function createProject(name: string) {
     const newProject: Project = {
       id: crypto.randomUUID(),
       name,
-      pages: [],
+      structure: [],
+      pages: {},
       media: []
     };
     projects.value.push(newProject);
@@ -70,7 +103,18 @@ export const useProjectStore = defineStore('project', () => {
     activePageId.value = null;
   }
 
-  function addPage(title: string) {
+  function findNode(nodes: FileSystemNode[], id: string): FileSystemNode | undefined {
+    for (const node of nodes) {
+        if (node.id === id) return node;
+        if (node.children) {
+            const found = findNode(node.children, id);
+            if (found) return found;
+        }
+    }
+    return undefined;
+  }
+
+  function addPage(title: string, parentNodeId?: string) {
     if (!project.value) return;
 
     const id = crypto.randomUUID();
@@ -81,23 +125,217 @@ export const useProjectStore = defineStore('project', () => {
       category: 'General',
       tags: [],
       blocks: [],
+      edges: [],
       markdownBody: '# ' + title + '\n\nStart writing...',
       viewMode: 'document'
     };
-    project.value.pages.push(newPage);
+
+    // Add to flat storage
+    project.value.pages[id] = newPage;
+
+    // Add to structure
+    const newNode: FileSystemNode = {
+      id: crypto.randomUUID(),
+      name: title,
+      type: 'page',
+      pageId: id
+    };
+
+    if (parentNodeId) {
+       const parent = findNode(project.value.structure, parentNodeId);
+       if (parent && parent.type === 'folder') {
+         parent.children = parent.children || [];
+         parent.children.push(newNode);
+         parent.isOpen = true;
+       } else {
+         project.value.structure.push(newNode);
+       }
+    } else {
+      project.value.structure.push(newNode);
+    }
+
     activePageId.value = id;
+  }
+
+  function addFolder(name: string, parentNodeId?: string) {
+    if (!project.value) return;
+    const newNode: FileSystemNode = {
+        id: crypto.randomUUID(),
+        name,
+        type: 'folder',
+        children: [],
+        isOpen: true
+    };
+     if (parentNodeId) {
+         const parent = findNode(project.value.structure, parentNodeId);
+         if (parent && parent.type === 'folder') {
+             parent.children = parent.children || [];
+             parent.children.push(newNode);
+             parent.isOpen = true;
+         } else {
+             project.value.structure.push(newNode);
+         }
+     } else {
+         project.value.structure.push(newNode);
+     }
   }
 
   function setActivePage(id: string) {
     activePageId.value = id;
+    if (!openPageIds.value.includes(id)) {
+      openPageIds.value.push(id);
+    }
+    viewMode.value = 'editor';
+  }
+
+  function closePage(id: string) {
+    const index = openPageIds.value.indexOf(id);
+    if (index !== -1) {
+      openPageIds.value.splice(index, 1);
+      // If we closed the active page, switch to another one
+      if (activePageId.value === id) {
+        if (openPageIds.value.length > 0) {
+          // Try to go to the one to the left, or the first one
+          const newIndex = Math.max(0, index - 1);
+          activePageId.value = openPageIds.value[newIndex] || null;
+        } else {
+          activePageId.value = null;
+        }
+      }
+    }
+  }
+
+  function setViewMode(mode: 'editor' | 'graph') {
+    viewMode.value = mode;
   }
 
   function updatePage(id: string, updates: Partial<DocPage>) {
     if (!project.value) return;
-    const page = project.value.pages.find(p => p.id === id);
+    const page = project.value.pages[id];
     if (page) {
       Object.assign(page, updates);
     }
+  }
+
+  function toggleFolder(nodeId: string) {
+      if (!project.value) return;
+      const node = findNode(project.value.structure, nodeId);
+      if (node && node.type === 'folder') {
+          node.isOpen = !node.isOpen;
+      }
+  }
+
+  function renameNode(id: string, newName: string) {
+    if (!project.value) return;
+    const node = findNode(project.value.structure, id);
+    if (node) {
+      node.name = newName;
+      if (node.type === 'page' && node.pageId) {
+        const page = project.value.pages[node.pageId];
+        if (page) page.title = newName;
+      }
+    }
+  }
+
+  function deleteNode(id: string) {
+    if (!project.value) return;
+
+    // Helper to remove from tree
+    function removeFromTree(nodes: FileSystemNode[]): boolean {
+      const idx = nodes.findIndex(n => n.id === id);
+      if (idx !== -1) {
+        const node = nodes[idx];
+        if (!node) return false;
+        // If page, remove content
+        if (node.type === 'page' && node.pageId && project.value) {
+          delete project.value.pages[node.pageId];
+          if (activePageId.value === node.pageId) activePageId.value = null;
+        }
+        // If folder, recursively delete content (optional, but good for cleanup)
+        if (node.type === 'folder' && node.children) {
+            // We could recursively delete pages here if we wanted to be strict about cleaning up project.pages
+        }
+        nodes.splice(idx, 1);
+        return true;
+      }
+
+      for (const node of nodes) {
+        if (node.children && removeFromTree(node.children)) return true;
+      }
+      return false;
+    }
+
+    removeFromTree(project.value.structure);
+  }
+
+  function moveNode(nodeId: string, targetFolderId: string | null) {
+    if (!project.value) return;
+    if (nodeId === targetFolderId) return; // Can't move into self
+
+    // Check for circular move (moving parent into child)
+    if (targetFolderId) {
+        const node = findNode(project.value.structure, nodeId);
+        if (node && node.children) {
+            const targetInChildren = findNode(node.children, targetFolderId);
+            if (targetInChildren) return; // Target is inside the node we are moving
+        }
+    }
+
+    // 1. Find and remove node
+    let nodeToMove: FileSystemNode | null = null;
+
+    function extract(nodes: FileSystemNode[]): boolean {
+      const idx = nodes.findIndex(n => n.id === nodeId);
+      if (idx !== -1) {
+        nodeToMove = nodes[idx] || null;
+        nodes.splice(idx, 1);
+        return true;
+      }
+      for (const node of nodes) {
+        if (node.children && extract(node.children)) return true;
+      }
+      return false;
+    }
+
+    extract(project.value.structure);
+
+    if (!nodeToMove) return;
+
+    // 2. Insert into target
+    if (targetFolderId === null) {
+      // Root
+      project.value.structure.push(nodeToMove);
+    } else {
+      const target = findNode(project.value.structure, targetFolderId);
+      if (target && target.type === 'folder') {
+        target.children = target.children || [];
+        target.children.push(nodeToMove);
+        target.isOpen = true;
+      } else {
+        // Fallback to root if target not found
+        project.value.structure.push(nodeToMove);
+      }
+    }
+  }
+
+  function importProject(importedProject: Project) {
+    // Check if project with same ID exists
+    const existingIndex = projects.value.findIndex(p => p.id === importedProject.id);
+    if (existingIndex !== -1) {
+      if (confirm(`Project "${importedProject.name}" already exists. Overwrite?`)) {
+        projects.value[existingIndex] = importedProject;
+      } else {
+        // Create copy with new ID
+        importedProject.id = crypto.randomUUID();
+        importedProject.name = `${importedProject.name} (Imported)`;
+        projects.value.push(importedProject);
+      }
+    } else {
+      projects.value.push(importedProject);
+    }
+    currentProjectId.value = importedProject.id;
+    activePageId.value = null;
+    openPageIds.value = [];
   }
 
   return {
@@ -105,10 +343,22 @@ export const useProjectStore = defineStore('project', () => {
     currentProjectId,
     project,
     activePageId,
+    activePage,
+    openPageIds,
     createProject,
     selectProject,
     addPage,
+    addFolder,
     setActivePage,
-    updatePage
+    closePage,
+    setViewMode,
+    viewMode,
+    updatePage,
+    toggleFolder,
+    renameNode,
+    deleteNode,
+    moveNode,
+    importProject,
+    useFileSystem
   };
 });

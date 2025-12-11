@@ -7,29 +7,29 @@ const props = defineProps<{ pageId: string }>();
 const store = useProjectStore();
 const showPreview = ref(true);
 
-const page = computed(() => store.project?.pages.find(p => p.id === props.pageId));
+const page = computed(() => store.project?.pages[props.pageId]);
 
 const compiledMarkdown = computed(() => {
   if (!page.value) return '';
-  
+
   // Custom renderer for [[WikiLinks]]
   const renderer = new marked.Renderer();
-  
+
   // We need to preprocess the markdown to handle [[WikiLinks]] before marked sees it,
   // or use a custom extension. A simple regex replacement is often easier for basic WikiLinks.
   // Let's replace [[Page Name]] with a special link format that we can style and handle.
-  
+
   let md = page.value.markdownBody;
-  
+
   // Regex for [[Page Name]] or [[Page Name|Label]]
   md = md.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, p1, p2) => {
     const pageName = p1.trim();
     const label = p2 ? p2.trim() : pageName;
     // Find the page ID if it exists
-    const targetPage = store.project?.pages.find(p => p.title.toLowerCase() === pageName.toLowerCase());
+    const targetPage = Object.values(store.project?.pages || {}).find(p => p.title.toLowerCase() === pageName.toLowerCase());
     const targetId = targetPage ? targetPage.id : '';
     const isMissing = !targetPage;
-    
+
     return `<a href="#" class="wiki-link ${isMissing ? 'missing' : ''}" data-page-id="${targetId}" data-page-name="${pageName}">${label}</a>`;
   });
 
@@ -42,7 +42,7 @@ function handlePreviewClick(e: MouseEvent) {
     e.preventDefault();
     const pageId = target.getAttribute('data-page-id');
     const pageName = target.getAttribute('data-page-name');
-    
+
     if (pageId) {
       store.setActivePage(pageId);
     } else if (pageName) {
@@ -59,6 +59,31 @@ function updateMarkdown(e: Event) {
   const target = e.target as HTMLTextAreaElement;
   if (page.value) {
     store.updatePage(page.value.id, { markdownBody: target.value });
+  }
+}
+
+function handleDrop(e: DragEvent) {
+  const pageId = e.dataTransfer?.getData('application/x-codex-page');
+  if (pageId && store.project && page.value) {
+    const targetPage = store.project.pages[pageId];
+    if (targetPage) {
+      const linkText = `[[${targetPage.title}]]`;
+
+      const textarea = e.target as HTMLTextAreaElement;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const text = textarea.value;
+
+      const newText = text.substring(0, start) + linkText + text.substring(end);
+
+      store.updatePage(page.value.id, { markdownBody: newText });
+
+      // Restore cursor position (approximate)
+      setTimeout(() => {
+          textarea.focus();
+          textarea.setSelectionRange(start + linkText.length, start + linkText.length);
+      }, 0);
+    }
   }
 }
 </script>
@@ -79,6 +104,8 @@ function updateMarkdown(e: Event) {
         class="flex-1 bg-brand-dark text-gray-300 p-4 resize-none focus:outline-none font-mono text-sm custom-scrollbar"
         :value="page.markdownBody"
         @input="updateMarkdown"
+        @drop.prevent="handleDrop"
+        @dragover.prevent
       ></textarea>
     </div>
     <div v-if="showPreview" class="w-1/2 h-full flex flex-col bg-brand-dark border-l border-gray-800">
@@ -90,8 +117,8 @@ function updateMarkdown(e: Event) {
            <span class="w-2 h-2 rounded-full bg-brand-orange"></span>
         </div>
       </div>
-      <div 
-        class="flex-1 p-8 prose prose-invert max-w-none overflow-auto custom-scrollbar" 
+      <div
+        class="flex-1 p-8 prose prose-invert max-w-none overflow-auto custom-scrollbar"
         v-html="compiledMarkdown"
         @click="handlePreviewClick"
       ></div>

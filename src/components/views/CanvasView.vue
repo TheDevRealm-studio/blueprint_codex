@@ -1,66 +1,164 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useProjectStore } from '../../stores/project';
-import type { Block } from '../../types';
-import BlueprintVisualizer from '../BlueprintVisualizer.vue';
-import PanZoomCanvas from '../canvas/PanZoomCanvas.vue';
-import DraggableBlock from '../canvas/DraggableBlock.vue';
-import MediaDisplay from '../canvas/MediaDisplay.vue';
-import { storage } from '../../services/storage';
+import type { Block, LinkBlock, Edge as BlockEdge } from '../../types';
+import { VueFlow, useVueFlow, type Node, type Edge, type Connection } from '@vue-flow/core';
+import { Background } from '@vue-flow/background';
+import { Controls } from '@vue-flow/controls';
+import CustomNode from '../canvas/nodes/CustomNode.vue';
+
+// Import Vue Flow styles
+import '@vue-flow/core/dist/style.css';
+import '@vue-flow/core/dist/theme-default.css';
+import '@vue-flow/controls/dist/style.css';
 
 const props = defineProps<{ pageId: string }>();
 const store = useProjectStore();
 
-const page = computed(() => store.project?.pages.find(p => p.id === props.pageId));
+const page = computed(() => store.project?.pages[props.pageId]);
 
-// Canvas State
-const zoom = ref(1);
-const offsetX = ref(0);
-const offsetY = ref(0);
-const selectedBlockId = ref<string | null>(null);
+// --- Vue Flow State ---
+
+const nodes = ref<Node[]>([]);
+const edges = ref<Edge[]>([]);
+
+const { onConnect, onNodeDragStop, screenToFlowCoordinate } = useVueFlow();
+
+// Sync from Store to Local State
+watch(() => page.value, (newPage: any) => {
+  if (!newPage) return;
+
+  // Map Blocks to Nodes
+  nodes.value = newPage.blocks.map((block: Block) => ({
+    id: block.id,
+    type: 'custom', // Use our custom node type
+    position: { x: block.x, y: block.y },
+    data: {
+      type: block.type,
+      content: block.content,
+      width: block.width,
+      height: block.height,
+      label: getBlockLabel(block),
+      pageId: props.pageId, // Pass pageId to node data
+      pins: block.pins
+    },
+  }));
+
+  // Map Edges
+  edges.value = (newPage.edges || []).map((edge: BlockEdge) => ({
+    id: edge.id,
+    source: edge.source,
+    target: edge.target,
+    sourceHandle: edge.sourceHandle,
+    targetHandle: edge.targetHandle,
+    animated: true,
+    style: { stroke: '#555' },
+  }));
+}, { immediate: true, deep: true });
+
+function getBlockLabel(block: Block) {
+    if (block.type === 'media') return block.content.label || 'Media';
+    if (block.type === 'steps') return 'Steps';
+    if (block.type === 'blueprint') return 'Blueprint';
+    if (block.type === 'asset') return 'Asset';
+    return 'Note';
+}
+
+// --- Event Handlers ---
+
+onConnect((params: Connection) => {
+  const newEdge: BlockEdge = {
+    id: crypto.randomUUID(),
+    source: params.source,
+    target: params.target,
+    sourceHandle: params.sourceHandle,
+    targetHandle: params.targetHandle
+  };
+
+  // Update Store
+  if (page.value) {
+    const currentEdges = page.value.edges || [];
+    store.updatePage(page.value.id, { edges: [...currentEdges, newEdge] });
+  }
+});
+
+onNodeDragStop((e) => {
+  // Update block positions in store
+  if (!page.value) return;
+
+  const updatedBlocks = page.value.blocks.map((block: Block) => {
+    // Find the matching node in the event nodes or local state
+    const matchingNode = e.nodes.find((n: Node) => n.id === block.id) || nodes.value.find((n: Node) => n.id === block.id);
+    if (matchingNode) {
+      return { ...block, x: matchingNode.position.x, y: matchingNode.position.y };
+    }
+    return block;
+  });
+
+  store.updatePage(page.value.id, { blocks: updatedBlocks });
+});
+
+function onDrop(event: DragEvent) {
+  const pageId = event.dataTransfer?.getData('application/x-codex-page');
+  if (pageId && store.project && page.value) {
+     const targetPage = store.project.pages[pageId];
+     if (targetPage) {
+        const position = screenToFlowCoordinate({
+            x: event.clientX,
+            y: event.clientY,
+        });
+
+        const newBlock: LinkBlock = {
+            id: crypto.randomUUID(),
+            type: 'link',
+            content: {
+                pageId: targetPage.id,
+                title: targetPage.title
+            },
+            x: position.x,
+            y: position.y,
+            width: 200,
+            height: 100
+        };
+
+        const currentBlocks = page.value.blocks || [];
+        store.updatePage(page.value.id, { blocks: [...currentBlocks, newBlock] });
+     }
+  }
+}
+
+// --- Toolbar ---
 
 const availableBlocks = [
   { type: 'text', label: 'Text Block', icon: '📝' },
   { type: 'steps', label: 'Steps List', icon: '🔢' },
   { type: 'media', label: 'Media', icon: '🖼️' },
   { type: 'blueprint', label: 'Blueprint', icon: '🕸️' },
+  { type: 'code', label: 'Code', icon: '💻' },
+  { type: 'asset', label: 'Asset Ref', icon: '📦' },
 ];
 
-const exampleBlocks = [
-  {
-    label: 'NPC Setup',
-    type: 'steps',
-    content: ['Create Character BP', 'Add Mesh', 'Setup AnimBP', 'Add AI Controller']
-  },
-  {
-    label: 'Note',
-    type: 'text',
-    content: '⚠️ Important: Remember to compile before saving!'
-  }
-];
-
-function addBlock(type: Block['type'], x?: number, y?: number, content?: any) {
+function addBlock(type: Block['type']) {
   if (!page.value) return;
 
-  // Default position: center of current view
-  const finalX = x ?? (-offsetX.value + 400) / zoom.value;
-  const finalY = y ?? (-offsetY.value + 300) / zoom.value;
-
-  const size = getDefaultSize(type);
+  // Center of view? For now just random offset or center
+  // We can use `project` from useVueFlow to project screen center to flow coords if we had access to viewport
+  // For now, fixed position + random offset
+  const x = 100 + Math.random() * 50;
+  const y = 100 + Math.random() * 50;
 
   const newBlock: Block = {
     id: crypto.randomUUID(),
     type,
-    content: content || getDefaultContent(type),
-    x: finalX,
-    y: finalY,
-    width: size.w,
-    height: size.h
+    content: getDefaultContent(type),
+    x,
+    y,
+    width: 300,
+    height: 200
   };
 
   const newBlocks = [...page.value.blocks, newBlock];
   store.updatePage(page.value.id, { blocks: newBlocks });
-  selectedBlockId.value = newBlock.id;
 }
 
 function getDefaultContent(type: Block['type']) {
@@ -69,249 +167,68 @@ function getDefaultContent(type: Block['type']) {
     case 'steps': return ['Step 1', 'Step 2'];
     case 'media': return { label: 'Image', filePath: '', kind: 'image' };
     case 'blueprint': return { blueprintString: '' };
+    case 'code': return { code: '// Write your code here...', language: 'cpp' };
     default: return {};
   }
 }
 
-function getDefaultSize(type: Block['type']) {
-  switch (type) {
-    case 'text': return { w: 300, h: 200 };
-    case 'steps': return { w: 300, h: 300 };
-    case 'media': return { w: 400, h: 300 };
-    case 'blueprint': return { w: 600, h: 400 };
-    default: return { w: 200, h: 200 };
-  }
-}
-
-function updateBlock(id: string, changes: Partial<Block>) {
-  if (!page.value) return;
-  const block = page.value.blocks.find(b => b.id === id);
-  if (block) {
-    Object.assign(block, changes);
-  }
-}
-
-function deleteBlock(blockId: string) {
-  if (!page.value) return;
-  const newBlocks = page.value.blocks.filter(b => b.id !== blockId);
-  store.updatePage(page.value.id, { blocks: newBlocks });
-  if (selectedBlockId.value === blockId) {
-    selectedBlockId.value = null;
-  }
-}
-
-async function handleDropFiles(files: FileList, x: number, y: number) {
-  const fileArray = Array.from(files);
-
-  for (let i = 0; i < fileArray.length; i++) {
-    const file = fileArray[i];
-    if (!file) continue;
-
-    const isImage = file.type.startsWith('image/');
-    const isVideo = file.type.startsWith('video/');
-
-    if (isImage || isVideo) {
-      try {
-        const fileId = await storage.saveAsset(file);
-        const size = getDefaultSize('media');
-
-        const newBlock: Block = {
-          id: crypto.randomUUID(),
-          type: 'media',
-          content: {
-            label: file.name,
-            filePath: fileId,
-            kind: isImage ? 'image' : 'video'
-          },
-          x: x + (i * 20),
-          y: y + (i * 20),
-          width: size.w,
-          height: size.h
-        };
-
-        if (page.value) {
-          store.updatePage(page.value.id, { blocks: [...page.value.blocks, newBlock] });
-        }
-      } catch (err) {
-        console.error('Failed to save file:', err);
-      }
-    }
-  }
-}
-
-function handleCanvasDrop(e: any) {
-  // This is called by PanZoomCanvas custom event
-  if (e.type === 'files') {
-    handleDropFiles(e.files, e.x, e.y);
-  } else if (e.type === 'data') {
-    const pageId = e.dataTransfer.getData('application/x-codex-page');
-    const pageTitle = e.dataTransfer.getData('text/plain');
-    
-    if (pageId && page.value) {
-      const newBlock: Block = {
-        id: crypto.randomUUID(),
-        type: 'link',
-        content: {
-          pageId,
-          title: pageTitle
-        },
-        x: e.x,
-        y: e.y,
-        width: 200,
-        height: 80
-      };
-      store.updatePage(page.value.id, { blocks: [...page.value.blocks, newBlock] });
-    }
-  }
-}
 </script>
 
 <template>
-  <div class="flex h-full" v-if="page">
-    <!-- Canvas Area -->
-    <div class="flex-1 bg-[#111] relative overflow-hidden">
-      <PanZoomCanvas
-        v-model:zoom="zoom"
-        v-model:offsetX="offsetX"
-        v-model:offsetY="offsetY"
-        @drop-item="handleCanvasDrop"
+  <div class="w-full h-full bg-ue-dark relative" @drop.prevent="onDrop" @dragover.prevent>
+    <VueFlow
+      v-model:nodes="nodes"
+      v-model:edges="edges"
+      :default-zoom="1"
+      :min-zoom="0.1"
+      :max-zoom="4"
+      fit-view-on-init
+      class="bg-ue-dark"
+    >
+      <template #node-custom="props">
+        <CustomNode v-bind="props" />
+      </template>
+
+      <Background pattern-color="#333" :gap="20" />
+      <Controls />
+    </VueFlow>
+
+    <!-- Floating Toolbar -->
+    <div class="absolute top-4 left-1/2 -translate-x-1/2 bg-ue-panel border border-black rounded-lg shadow-xl p-2 flex gap-2 z-10">
+      <button
+        v-for="block in availableBlocks"
+        :key="block.type"
+        @click="addBlock(block.type as any)"
+        class="flex flex-col items-center justify-center w-16 h-14 rounded hover:bg-white/10 transition-colors group"
+        :title="block.label"
       >
-        <DraggableBlock
-          v-for="block in page.blocks"
-          :key="block.id"
-          :id="block.id"
-          :x="block.x || 0"
-          :y="block.y || 0"
-          :width="block.width || 300"
-          :height="block.height || 200"
-          :selected="selectedBlockId === block.id"
-          @update="updateBlock"
-          @select="selectedBlockId = $event"
-        >
-          <div class="flex flex-col h-full">
-            <!-- Block Header -->
-            <div class="flex items-center justify-between px-2 py-1 bg-ue-panel border-b border-gray-700 cursor-move">
-              <span class="text-xs font-bold text-gray-400 uppercase select-none">{{ block.type }}</span>
-              <button @click.stop="deleteBlock(block.id)" class="text-gray-500 hover:text-red-400 px-1">×</button>
-            </div>
-
-            <!-- Block Content -->
-            <div class="flex-1 overflow-auto p-2 bg-ue-panel/80" @mousedown.stop>
-              <!-- Link Block -->
-              <div v-if="block.type === 'link'" class="h-full flex flex-col items-center justify-center bg-brand-surface border border-brand-purple/30 rounded p-4 group hover:border-brand-purple transition-colors cursor-pointer" @click="store.setActivePage(block.content.pageId)">
-                <span class="text-2xl mb-2">🔗</span>
-                <span class="text-brand-green font-bold text-center hover:underline">{{ block.content.title }}</span>
-                <span class="text-xs text-gray-500 mt-1">Click to open</span>
-              </div>
-
-              <!-- Text Block -->
-              <div v-else-if="block.type === 'text'" class="h-full">
-                <textarea
-                  class="w-full h-full bg-transparent border-none resize-none focus:outline-none text-gray-300"
-                  v-model="block.content"
-                ></textarea>
-              </div>
-
-              <!-- Steps Block -->
-              <div v-else-if="block.type === 'steps'">
-                <div v-for="(_, idx) in block.content" :key="idx" class="flex gap-2 mb-2">
-                  <span class="text-gray-500 font-mono">{{ idx + 1 }}.</span>
-                  <input
-                    type="text"
-                    v-model="block.content[idx]"
-                    class="flex-1 bg-black/20 border border-gray-700 rounded px-2 py-1 text-gray-300 text-sm"
-                  >
-                </div>
-                <button
-                  @click="block.content.push('New step')"
-                  class="text-xs text-ue-accent hover:underline"
-                >+ Add Step</button>
-              </div>
-
-              <!-- Blueprint Block -->
-              <div v-else-if="block.type === 'blueprint'" class="h-full flex flex-col">
-                <div v-if="!block.content.blueprintString" class="p-4 text-center">
-                  <textarea
-                    class="w-full bg-black/20 border border-gray-700 rounded p-2 text-xs font-mono text-gray-400 mb-2"
-                    rows="3"
-                    placeholder="Paste Blueprint String here..."
-                    v-model="block.content.blueprintString"
-                  ></textarea>
-                </div>
-                <div v-else class="flex-1 relative overflow-hidden border border-gray-700 rounded bg-[#1a1a1a]">
-                   <BlueprintVisualizer :blueprint="block.content.blueprintString" />
-                   <button
-                     @click="block.content.blueprintString = ''"
-                     class="absolute top-2 right-2 bg-black/50 text-xs text-white px-2 py-1 rounded hover:bg-red-500"
-                   >Edit</button>
-                </div>
-              </div>
-
-              <!-- Media Block -->
-              <div v-else-if="block.type === 'media'" class="h-full flex flex-col">
-                <MediaDisplay
-                  :src="block.content.filePath"
-                  :kind="block.content.kind"
-                >
-                  <template #label>
-                    <input
-                      type="text"
-                      v-model="block.content.label"
-                      class="bg-transparent border-none text-xs text-center text-gray-400 w-full focus:outline-none"
-                      placeholder="Label..."
-                    >
-                  </template>
-                </MediaDisplay>
-              </div>
-            </div>
-          </div>
-        </DraggableBlock>
-      </PanZoomCanvas>
-    </div>
-
-    <!-- Floating Palette Dock -->
-    <div class="absolute top-4 left-4 flex flex-col gap-4 z-20 pointer-events-none">
-      <!-- Tools -->
-      <div class="bg-brand-surface/90 backdrop-blur border border-gray-700 rounded-xl shadow-2xl p-2 flex flex-col gap-1 pointer-events-auto">
-        <div class="text-[10px] font-bold text-gray-500 uppercase text-center mb-1 tracking-wider">Tools</div>
-        <button
-          v-for="item in availableBlocks"
-          :key="item.type"
-          @click="addBlock(item.type as any)"
-          class="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-brand-green/20 hover:text-brand-green text-gray-400 transition-all group relative"
-          :title="item.label"
-        >
-          <span class="text-xl filter grayscale group-hover:grayscale-0 transition-all">{{ item.icon }}</span>
-          <!-- Tooltip -->
-          <span class="absolute left-full ml-2 px-2 py-1 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-            {{ item.label }}
-          </span>
-        </button>
-      </div>
-
-      <!-- Examples -->
-      <div class="bg-brand-surface/90 backdrop-blur border border-gray-700 rounded-xl shadow-2xl p-2 flex flex-col gap-1 pointer-events-auto">
-        <div class="text-[10px] font-bold text-gray-500 uppercase text-center mb-1 tracking-wider">Presets</div>
-        <button
-          v-for="(item, idx) in exampleBlocks"
-          :key="idx"
-          @click="addBlock(item.type as any, undefined, undefined, item.content)"
-          class="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-brand-purple/20 hover:text-brand-purple text-gray-400 transition-all group relative"
-          :title="item.label"
-        >
-          <span class="text-xl">💡</span>
-          <span class="absolute left-full ml-2 px-2 py-1 bg-black text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-            {{ item.label }}
-          </span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Help Toast -->
-    <div class="absolute bottom-4 left-4 bg-brand-surface/80 backdrop-blur border border-gray-700 rounded-lg p-3 text-xs text-gray-400 pointer-events-none select-none">
-      <div class="flex items-center gap-2"><span class="font-bold text-gray-300">Space + Drag</span> to Pan</div>
-      <div class="flex items-center gap-2"><span class="font-bold text-gray-300">Wheel</span> to Zoom</div>
-      <div class="flex items-center gap-2"><span class="font-bold text-gray-300">Drag & Drop</span> media</div>
+        <span class="text-xl mb-1 group-hover:scale-110 transition-transform">{{ block.icon }}</span>
+        <span class="text-[10px] text-gray-400 uppercase font-bold">{{ block.label.split(' ')[0] }}</span>
+      </button>
     </div>
   </div>
 </template>
+
+<style>
+/* Override Vue Flow styles to match UE theme */
+.vue-flow__controls {
+  box-shadow: none;
+  border: 1px solid #000;
+}
+.vue-flow__controls-button {
+  background: #1E1E1E;
+  border-bottom: 1px solid #000;
+  fill: #aaa;
+}
+.vue-flow__controls-button:hover {
+  background: #333;
+  fill: #fff;
+}
+.vue-flow__edge-path {
+  stroke: #777;
+  stroke-width: 2;
+}
+.vue-flow__edge.selected .vue-flow__edge-path {
+  stroke: #F08D49; /* UE Accent */
+}
+</style>

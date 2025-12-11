@@ -7,17 +7,21 @@ export default {
   theme: {
     extend: {
       colors: {
-        'ue-dark': '#0A0F1C', // Updated to BG Dark
-        'ue-panel': '#0F1419', // Updated to Surface Medium
-        'ue-accent': '#10B981', // Updated to Primary Green
+        'ue-dark': '#151515', // UE5 Main Background
+        'ue-panel': '#1E1E1E', // UE5 Panel Background
+        'ue-header': '#262626', // UE5 Header/Toolbar
+        'ue-selected': '#005FB8', // UE5 Selection Blue
+        'ue-text': '#B0B0B0', // UE5 Standard Text
+        'ue-text-bright': '#FFFFFF', // UE5 Bright Text
+        'ue-accent': '#F08D49', // UE5 Orange Accent
 
-        // Brand Palette
+        // Brand Palette (Legacy/Custom)
         'brand-green': '#10B981',
         'brand-purple': '#8B5CF6',
         'brand-orange': '#F59E0B',
-        'brand-dark': '#0A0F1C',
-        'brand-surface': '#0F1419',
-        'brand-text': '#64748B',
+        'brand-dark': '#151515',
+        'brand-surface': '#1E1E1E',
+        'brand-text': '#B0B0B0',
       },
       fontFamily: {
         sans: ['Inter', 'sans-serif'],

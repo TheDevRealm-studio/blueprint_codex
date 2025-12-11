@@ -13,8 +13,10 @@ const loading = ref(false);
 const error = ref<string | null>(null);
 
 async function loadMedia() {
+  if (!props.src) return;
+
   // If it's already a blob URL or http URL, just use it
-  if (props.src.startsWith('blob:') || props.src.startsWith('http')) {
+  if (props.src.startsWith('blob:') || props.src.startsWith('http') || props.src.startsWith('data:')) {
     resolvedUrl.value = props.src;
     return;
   }
