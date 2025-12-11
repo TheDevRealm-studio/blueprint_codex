@@ -1,6 +1,6 @@
 import { open } from '@tauri-apps/api/dialog';
 import { invoke } from '@tauri-apps/api/tauri';
-import { ref, computed } from 'vue';
+import { ref } from 'vue';
 
 export interface UnrealAsset {
   name: string;
@@ -12,7 +12,14 @@ export interface UnrealAsset {
 class UnrealService {
   private assets = ref<UnrealAsset[]>([]);
   private isScanning = ref(false);
-  private projectPath = ref<string | null>(null);
+  private projectPath = ref<string | null>(localStorage.getItem('unreal_project_path'));
+  private graphRootPath = ref<string | null>(null); // For scoping the graph view
+
+  constructor() {
+    if (this.projectPath.value) {
+      this.scanProject(this.projectPath.value);
+    }
+  }
 
   // Tree structure for the Content Browser
   get assetTree() {
@@ -55,6 +62,14 @@ class UnrealService {
     return this.isScanning;
   }
 
+  getGraphRootPath() {
+    return this.graphRootPath;
+  }
+
+  setGraphRootPath(path: string | null) {
+    this.graphRootPath.value = path;
+  }
+
   async selectProject(): Promise<string | null> {
     try {
       // @ts-ignore
@@ -71,6 +86,7 @@ class UnrealService {
 
       if (selected && typeof selected === 'string') {
         this.projectPath.value = selected;
+        localStorage.setItem('unreal_project_path', selected);
         await this.scanProject(selected);
         return selected;
       }
@@ -79,6 +95,7 @@ class UnrealService {
     }
     return null;
   }
+
 
   async scanProject(rootPath: string) {
     this.isScanning.value = true;
@@ -104,6 +121,21 @@ class UnrealService {
       a.name.toLowerCase().includes(q) ||
       a.path.toLowerCase().includes(q)
     ).slice(0, 20); // Limit results
+  }
+
+  async analyzeAsset(filePath: string) {
+      try {
+          const response = await fetch('http://localhost:3001/api/analyze-uasset', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ path: filePath })
+          });
+          if (!response.ok) throw new Error('Server error');
+          return await response.json();
+      } catch (e) {
+          console.error('Failed to analyze asset', e);
+          return null;
+      }
   }
 }
 

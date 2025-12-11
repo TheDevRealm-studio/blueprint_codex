@@ -122,7 +122,23 @@ function renderMarkdown(text: string) {
   };
 
   // Regex for [[Page Name]] or [[Page Name|Label]]
-  const processed = text.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, p1, p2) => {
+  const processed = text
+    // Handle Unreal Assets: [[Type'Path.Name']]
+    .replace(/\[\[(\w+'[^']+')\]\]/g, (_, ref) => {
+        const match = ref.match(/^(\w+)'(.*)\.([^']+)'$/);
+        if (match) {
+            const type = match[1];
+            const name = match[3];
+            // Simple inline badge style
+            return `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-800 border border-gray-700 text-xs font-mono text-gray-300 select-none cursor-help" title="${ref}">
+                <span class="text-ue-accent font-bold">${type}</span>
+                <span>${name}</span>
+            </span>`;
+        }
+        return ref;
+    })
+    // Handle Pages
+    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, p1, p2) => {
     const pageName = p1.trim();
     const label = p2 ? p2.trim() : pageName;
     // Find the page ID if it exists
@@ -225,18 +241,19 @@ function updateAutocompletePos(textarea: HTMLTextAreaElement) {
 function selectAutocomplete(item: { type: 'page' | 'asset', title: string, data?: any }) {
   if (!textareaRef.value || !page.value) return;
 
-  let pageTitle = item.title;
+  let insertionText = '';
 
-  // If it's an asset, ensure a page exists
   if (item.type === 'asset' && item.data) {
-      // Check if page exists
+      const ref = `${item.data.asset_type}'${item.data.path}.${item.data.name}'`;
+      insertionText = `[[${ref}]]`;
+  } else {
+      // Page Logic
+      const pageTitle = item.title;
       const existingPage = Object.values(store.project?.pages || {}).find(p => p.title === item.title);
       if (!existingPage) {
-          // Create new page
           store.addPage(item.title);
-          // We might want to add some initial content to the new page about the asset
-          // But for now just creating it is enough
       }
+      insertionText = `[[${pageTitle}]]`;
   }
 
   const textarea = textareaRef.value;
@@ -245,13 +262,13 @@ function selectAutocomplete(item: { type: 'page' | 'asset', title: string, data?
   const lastOpen = text.lastIndexOf('[[', cursor);
 
   if (lastOpen !== -1) {
-    const newText = text.slice(0, lastOpen) + `[[${pageTitle}]]` + text.slice(cursor);
+    const newText = text.slice(0, lastOpen) + insertionText + text.slice(cursor);
     store.updatePage(page.value.id, { markdownBody: newText });
     showAutocomplete.value = false;
 
     setTimeout(() => {
       textarea.focus();
-      const newCursor = lastOpen + pageTitle.length + 4;
+      const newCursor = lastOpen + insertionText.length;
       textarea.setSelectionRange(newCursor, newCursor);
     }, 0);
   }
@@ -331,6 +348,22 @@ function handleDrop(e: DragEvent) {
       const linkText = `![Asset](${assetId})`;
       const newText = text.substring(0, start) + linkText + text.substring(end);
       store.updatePage(page.value!.id, { markdownBody: newText });
+      return;
+  }
+
+  // 2.5 Handle Unreal Assets
+  const unrealAssetData = e.dataTransfer?.getData('application/x-codex-asset-data');
+  if (unrealAssetData) {
+      const asset = JSON.parse(unrealAssetData);
+      const ref = `${asset.asset_type}'${asset.path}.${asset.name}'`;
+      const linkText = `[[${ref}]]`;
+      const newText = text.substring(0, start) + linkText + text.substring(end);
+      store.updatePage(page.value!.id, { markdownBody: newText });
+
+      setTimeout(() => {
+          textarea.focus();
+          textarea.setSelectionRange(start + linkText.length, start + linkText.length);
+      }, 0);
       return;
   }
 

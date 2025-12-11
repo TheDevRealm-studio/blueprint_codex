@@ -21,6 +21,7 @@
         "marked": "^17.0.1",
         "multer": "^2.0.2",
         "pinia": "^3.0.4",
+        "uassetreader": "^1.0.2",
         "vue": "^3.5.24",
         "vue-router": "^4.6.3",
         "vuedraggable": "^4.1.0",
@@ -759,6 +760,8 @@
     "typedarray": ["typedarray@0.0.6", "", {}, "sha512-/aCDEGatGvZ2BIk+HmLf4ifCJFwvKFNb9/JeZPMulfgFracn9QFcAf5GO8B/mweUjSoblS5In0cWhqpfs/5PQA=="],
 
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+
+    "uassetreader": ["uassetreader@1.0.2", "", {}, "sha512-8y8tEMWfcjBnEYyeg7nq4cmd06yCDQ9aEbXCTms7tQlt71WWu1G2SpNpH+dS8yTfTWje+U9O5dQgNCnBA5mvnA=="],
 
     "undici-types": ["undici-types@7.16.0", "", {}, "sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw=="],
 

@@ -7,7 +7,7 @@ import { VueFlow, useVueFlow, type Node, type Edge, type Connection } from '@vue
 import { Background } from '@vue-flow/background';
 import { Controls } from '@vue-flow/controls';
 import CustomNode from '../canvas/nodes/CustomNode.vue';
-import { Type, ListOrdered, Image, Network, Code, Package } from 'lucide-vue-next';
+import { Type, ListOrdered, Image, Network, Code, Package, Trash2, Unplug } from 'lucide-vue-next';
 
 // Import Vue Flow styles
 import '@vue-flow/core/dist/style.css';
@@ -24,38 +24,263 @@ const page = computed(() => store.project?.pages[props.pageId]);
 const nodes = ref<Node[]>([]);
 const edges = ref<Edge[]>([]);
 
-const { onConnect, onNodeDragStop, screenToFlowCoordinate, onNodesChange, onEdgesChange } = useVueFlow();
+const { onConnect, onNodeDragStop, screenToFlowCoordinate, onNodesChange, onEdgesChange, onNodeContextMenu } = useVueFlow();
+
+// Context Menu
+const contextMenu = ref({
+  visible: false,
+  x: 0,
+  y: 0,
+  nodeId: null as string | null
+});
+
+onNodeContextMenu((e) => {
+  e.event.preventDefault();
+  const event = e.event as MouseEvent;
+  contextMenu.value = {
+    visible: true,
+    x: event.clientX,
+    y: event.clientY,
+    nodeId: e.node.id
+  };
+});
+
+function deleteNode() {
+  if (contextMenu.value.nodeId && page.value) {
+    const currentBlocks = [...page.value.blocks];
+    const index = currentBlocks.findIndex(b => b.id === contextMenu.value.nodeId);
+    if (index !== -1) {
+      currentBlocks.splice(index, 1);
+      store.updatePage(page.value.id, { blocks: currentBlocks });
+    }
+  }
+  closeContextMenu();
+}
+
+function disconnectNode() {
+  if (contextMenu.value.nodeId && page.value) {
+    const currentEdges = page.value.edges || [];
+    const newEdges = currentEdges.filter(e => e.source !== contextMenu.value.nodeId && e.target !== contextMenu.value.nodeId);
+    store.updatePage(page.value.id, { edges: newEdges });
+  }
+  closeContextMenu();
+}
+
+function closeContextMenu() {
+  contextMenu.value.visible = false;
+}
+
+// --- History / Undo / Redo ---
+const history = ref<{ blocks: Block[], edges: BlockEdge[] }[]>([]);
+const historyIndex = ref(-1);
+const isUndoing = ref(false);
+
+function saveHistory() {
+  if (!page.value) return;
+  
+  const state = {
+    blocks: JSON.parse(JSON.stringify(page.value.blocks || [])),
+    edges: JSON.parse(JSON.stringify(page.value.edges || []))
+  };
+
+  // Check if identical to current top to avoid duplicates
+  if (historyIndex.value >= 0) {
+      const current = history.value[historyIndex.value];
+      if (JSON.stringify(current) === JSON.stringify(state)) return;
+  }
+
+  // Slice if we are in the middle
+  if (historyIndex.value < history.value.length - 1) {
+      history.value = history.value.slice(0, historyIndex.value + 1);
+  }
+
+  history.value.push(state);
+  historyIndex.value++;
+  
+  // Limit history size
+  if (history.value.length > 50) {
+      history.value.shift();
+      historyIndex.value--;
+  }
+}
+
+function undo() {
+    if (historyIndex.value > 0) {
+        historyIndex.value--;
+        const state = history.value[historyIndex.value];
+        if (state) {
+            isUndoing.value = true;
+            store.updatePage(page.value!.id, { 
+                blocks: JSON.parse(JSON.stringify(state.blocks)), 
+                edges: JSON.parse(JSON.stringify(state.edges)) 
+            });
+        }
+    }
+}
+
+function redo() {
+    if (historyIndex.value < history.value.length - 1) {
+        historyIndex.value++;
+        const state = history.value[historyIndex.value];
+        if (state) {
+            isUndoing.value = true;
+            store.updatePage(page.value!.id, { 
+                blocks: JSON.parse(JSON.stringify(state.blocks)), 
+                edges: JSON.parse(JSON.stringify(state.edges)) 
+            });
+        }
+    }
+}
+
+function handleKeyDown(e: KeyboardEvent) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+            redo();
+        } else {
+            undo();
+        }
+    } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        e.preventDefault();
+        redo();
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        // Prevent deletion if user is typing in an input
+        const activeTag = document.activeElement?.tagName.toLowerCase();
+        if (activeTag === 'input' || activeTag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable) {
+            return;
+        }
+
+        const selectedNodes = nodes.value.filter((n: any) => n.selected);
+        if (selectedNodes.length > 0) {
+            e.preventDefault();
+            deleteNodes(selectedNodes.map((n: any) => n.id));
+        }
+    }
+}
+
+function deleteNodes(nodeIds: string[]) {
+    if (!page.value || nodeIds.length === 0) return;
+    
+    const ids = new Set(nodeIds);
+    const currentBlocks = [...page.value.blocks];
+    const newBlocks = currentBlocks.filter(b => !ids.has(b.id));
+    
+    if (newBlocks.length !== currentBlocks.length) {
+        store.updatePage(page.value.id, { blocks: newBlocks });
+    }
+}
+
+onMounted(() => {
+  window.addEventListener('click', closeContextMenu);
+  window.addEventListener('keydown', handleKeyDown);
+  // Initial history state
+  if (page.value) {
+      saveHistory();
+  }
+});
+
+onUnmounted(() => {
+  window.removeEventListener('click', closeContextMenu);
+  window.removeEventListener('keydown', handleKeyDown);
+});
 
 // Sync from Store to Local State
 watch(() => page.value, (newPage: any) => {
   if (!newPage) return;
 
-  // Map Blocks to Nodes
-  nodes.value = newPage.blocks.map((block: Block) => ({
-    id: block.id,
-    type: 'custom', // Use our custom node type
-    position: { x: block.x, y: block.y },
-    data: {
-      type: block.type,
-      content: block.content,
-      width: block.width,
-      height: block.height,
-      label: getBlockLabel(block),
-      pageId: props.pageId, // Pass pageId to node data
-      pins: block.pins
-    },
-  }));
+  // History Tracking
+  if (isUndoing.value) {
+      isUndoing.value = false;
+  } else {
+      saveHistory();
+  }
 
-  // Map Edges
-  edges.value = (newPage.edges || []).map((edge: BlockEdge) => ({
-    id: edge.id,
-    source: edge.source,
-    target: edge.target,
-    sourceHandle: edge.sourceHandle,
-    targetHandle: edge.targetHandle,
-    animated: true,
-    style: { stroke: '#555' },
-  }));
+  // --- Optimized Node Sync ---
+  const newBlocks = newPage.blocks;
+  const newBlockIds = new Set(newBlocks.map((b: Block) => b.id));
+
+  // 1. Remove deleted nodes
+  for (let i = nodes.value.length - 1; i >= 0; i--) {
+      const node = nodes.value[i];
+      if (node && !newBlockIds.has(node.id)) {
+          nodes.value.splice(i, 1);
+      }
+  }
+
+  // 2. Update or Add nodes
+  for (const block of newBlocks) {
+      const existingNode = nodes.value.find(n => n.id === block.id);
+
+      if (existingNode) {
+          // Update position if changed
+          if (existingNode.position.x !== block.x || existingNode.position.y !== block.y) {
+              existingNode.position = { x: block.x, y: block.y };
+          }
+
+          // Update data only if necessary to avoid reactivity overhead
+          // We check for reference equality on content since store updates usually preserve references for unchanged blocks
+          if (existingNode.data.content !== block.content ||
+              existingNode.data.width !== block.width ||
+              existingNode.data.height !== block.height ||
+              existingNode.data.label !== getBlockLabel(block)) {
+              
+              existingNode.data = {
+                  type: block.type,
+                  content: block.content,
+                  width: block.width,
+                  height: block.height,
+                  label: getBlockLabel(block),
+                  pageId: props.pageId,
+                  pins: block.pins
+              };
+          }
+      } else {
+          // Add new node
+          nodes.value.push({
+              id: block.id,
+              type: 'custom',
+              position: { x: block.x, y: block.y },
+              data: {
+                  type: block.type,
+                  content: block.content,
+                  width: block.width,
+                  height: block.height,
+                  label: getBlockLabel(block),
+                  pageId: props.pageId,
+                  pins: block.pins
+              },
+          });
+      }
+  }
+
+  // --- Optimized Edge Sync ---
+  const newEdges = newPage.edges || [];
+  const newEdgeIds = new Set(newEdges.map((e: BlockEdge) => e.id));
+
+  // 1. Remove deleted edges
+  for (let i = edges.value.length - 1; i >= 0; i--) {
+      const edge = edges.value[i];
+      if (edge && !newEdgeIds.has(edge.id)) {
+          edges.value.splice(i, 1);
+      }
+  }
+
+  // 2. Update or Add edges
+  for (const edge of newEdges) {
+      const existingEdge = edges.value.find(e => e.id === edge.id);
+      if (!existingEdge) {
+          edges.value.push({
+              id: edge.id,
+              source: edge.source,
+              target: edge.target,
+              sourceHandle: edge.sourceHandle,
+              targetHandle: edge.targetHandle,
+              animated: true,
+              style: { stroke: '#555' },
+          });
+      }
+      // Edges rarely change properties other than existence, so we skip deep update for now
+  }
 }, { immediate: true, deep: true });
 
 function getBlockLabel(block: Block) {
@@ -249,13 +474,15 @@ async function onDrop(event: DragEvent) {
 
 async function handleDroppedFiles(fileArray: File[], position: { x: number; y: number }) {
   const pageId = props.pageId;
+  const newBlocks: MediaBlock[] = [];
+  const uploads: Array<{ file: File; blockId: string }> = [];
 
+  // 1. Create optimistic blocks immediately
   for (let i = 0; i < fileArray.length; i++) {
       const file = fileArray[i];
       if (!file) continue;
 
       let kind: 'image' | 'video' | null = null;
-
       if (file.type.startsWith('image/')) kind = 'image';
       else if (file.type.startsWith('video/')) kind = 'video';
 
@@ -264,53 +491,75 @@ async function handleDroppedFiles(fileArray: File[], position: { x: number; y: n
           continue;
       }
 
-      try {
-          console.log('Starting upload for file:', file.name);
-          let assetId = '';
-          let assetName = file.name;
+      const tempId = crypto.randomUUID();
+      const blobUrl = URL.createObjectURL(file);
 
-          // Try to save to storage, fallback to blob URL if it fails
-          try {
-              const asset = await storage.saveAsset(file);
-              assetId = asset.id;
-              assetName = asset.name;
-              console.log('File uploaded to storage, id:', assetId);
-          } catch (storageError) {
-              console.warn('Storage save failed, using blob URL:', storageError);
-              assetId = URL.createObjectURL(file);
-          }
+      const newBlock: MediaBlock = {
+          id: tempId,
+          type: 'media',
+          content: {
+              label: file.name,
+              filePath: blobUrl, // Temporary URL
+              kind: kind
+          },
+          x: position.x + (i * 50),
+          y: position.y + (i * 50),
+          width: kind === 'video' ? 400 : 300,
+          height: 300
+      };
 
-          // Ensure we still have a valid page reference
-          const currentPage = store.project?.pages[pageId];
-          if (!currentPage) {
-              console.error('Page reference lost during file upload');
-              return;
-          }
-
-          const newBlock: MediaBlock = {
-              id: crypto.randomUUID(),
-              type: 'media',
-              content: {
-                  label: assetName,
-                  filePath: assetId,
-                  kind: kind
-              },
-              x: position.x + (i * 50),
-              y: position.y + (i * 50),
-              width: kind === 'video' ? 400 : 300,
-              height: 300
-          };
-
-          console.log('Creating block for:', file.name);
-          const updatedBlocks = [...currentPage.blocks, newBlock];
-          store.updatePage(pageId, { blocks: updatedBlocks });
-          console.log('Block created and page updated');
-
-      } catch (e) {
-          console.error('Failed to process dropped file:', file.name, e);
-      }
+      newBlocks.push(newBlock);
+      uploads.push({ file, blockId: tempId });
   }
-  console.log('Finished processing all dropped files');
+
+  if (newBlocks.length === 0) return;
+
+  // 2. Update UI immediately
+  const currentPage = store.project?.pages[pageId];
+  if (currentPage) {
+      store.updatePage(pageId, { blocks: [...currentPage.blocks, ...newBlocks] });
+  }
+
+  // 3. Process uploads in background
+  uploads.forEach(async ({ file, blockId }) => {
+      try {
+          console.log('Starting background upload for:', file.name);
+          const asset = await storage.saveAsset(file);
+          
+          // Update the specific block with the real Asset ID
+          // Fetch latest state to avoid overwriting other changes
+          const latestPage = store.project?.pages[pageId];
+          if (latestPage) {
+              const blockIndex = latestPage.blocks.findIndex(b => b.id === blockId);
+              if (blockIndex !== -1) {
+                  const block = latestPage.blocks[blockIndex] as MediaBlock;
+                  
+                  // Revoke the temporary blob URL
+                  if (block.content.filePath.startsWith('blob:')) {
+                      URL.revokeObjectURL(block.content.filePath);
+                  }
+
+                  const updatedBlock = {
+                      ...block,
+                      content: {
+                          ...block.content,
+                          label: asset.name,
+                          filePath: asset.id
+                      }
+                  };
+
+                  const updatedBlocks = [...latestPage.blocks];
+                  updatedBlocks[blockIndex] = updatedBlock;
+                  store.updatePage(pageId, { blocks: updatedBlocks });
+                  console.log('Block updated with real Asset ID:', asset.id);
+              }
+          }
+      } catch (e) {
+          console.error('Failed to upload file in background:', file.name, e);
+      }
+  });
+  
+  console.log('Optimistic blocks created, uploads running in background');
 }
 
 // --- Paste Handler ---
@@ -512,6 +761,9 @@ function getDefaultContent(type: Block['type']) {
       :default-zoom="1"
       :min-zoom="0.1"
       :max-zoom="4"
+      :multi-selection-key-code="'Control'"
+      :delete-key-code="['Delete', 'Backspace']"
+      :only-render-visible-elements="true"
       fit-view-on-init
       class="bg-ue-dark"
     >
@@ -535,6 +787,18 @@ function getDefaultContent(type: Block['type']) {
         <component :is="block.icon" class="w-5 h-5 mb-1 text-gray-300 group-hover:text-white group-hover:scale-110 transition-all" />
         <span class="text-[10px] text-gray-400 uppercase font-bold">{{ block.label.split(' ')[0] }}</span>
       </button>
+    </div>
+
+    <!-- Context Menu -->
+    <div v-if="contextMenu.visible"
+         class="fixed z-50 bg-gray-800 border border-gray-700 rounded shadow-xl py-1 min-w-[150px]"
+         :style="{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }">        <button @click.stop="disconnectNode" class="w-full text-left px-3 py-1.5 text-xs text-gray-300 hover:bg-white/5 flex items-center gap-2">
+            <Unplug class="w-3 h-3" />
+            Disconnect Node
+        </button>        <button @click.stop="deleteNode" class="w-full text-left px-3 py-1.5 text-xs text-red-400 hover:bg-white/5 flex items-center gap-2">
+            <Trash2 class="w-3 h-3" />
+            Discard Node
+        </button>
     </div>
   </div>
 </template>

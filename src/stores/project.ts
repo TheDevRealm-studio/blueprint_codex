@@ -252,7 +252,7 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
-  function setViewMode(mode: 'editor' | 'graph') {
+  function setViewMode(mode: 'editor' | 'graph' | 'project-graph') {
     viewMode.value = mode;
   }
 

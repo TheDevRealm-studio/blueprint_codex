@@ -30,7 +30,8 @@ const tagColors: Record<string, string> = {
   'Feature': '#44ff44',
   'Blueprint': '#4444ff',
   'UI': '#ffaa00',
-  'Logic': '#00aaff'
+  'Logic': '#00aaff',
+  'Asset': '#F08D49'
 };
 
 function getColor(tags: string[]) {
@@ -55,14 +56,16 @@ function initGraph() {
   const height = container.value.clientHeight;
 
   // Prepare Data
-  const nodes: GraphNode[] = (Object.values(project.value.pages) as any[]).map(page => ({
+  const pageNodes: GraphNode[] = (Object.values(project.value.pages) as any[]).map(page => ({
     id: page.id,
     title: page.title,
     tags: (page.tags as string[]) || [],
-    group: 1
+    group: 1,
+    type: 'page'
   }));
 
   const links: GraphLink[] = [];
+  const assetNodes = new Map<string, GraphNode>();
 
   (Object.values(project.value.pages) as any[]).forEach(page => {
     // 1. Canvas Links
@@ -85,6 +88,10 @@ function initGraph() {
       while ((match = regex.exec(page.markdownBody)) !== null) {
         if (match[1]) {
             const targetTitle = match[1].trim();
+            
+            // Skip if it looks like an asset link
+            if (targetTitle.match(/^\w+'[^']+\.[^']+'$/)) continue;
+
             const targetPage = (Object.values(project.value.pages) as any[]).find(p => p.title.toLowerCase() === targetTitle.toLowerCase());
 
             if (targetPage) {
@@ -95,8 +102,72 @@ function initGraph() {
             }
         }
       }
+
+      // 3. Unreal Asset Links from Markdown
+      const assetRegex = /\[\[(\w+'[^']+')\]\]/g;
+      while ((match = assetRegex.exec(page.markdownBody)) !== null) {
+          const ref = match[1];
+          if (!ref) continue;
+          const matchParts = ref.match(/^(\w+)'(.*)\.([^']+)'$/);
+          if (matchParts) {
+              const type = matchParts[1];
+              const path = matchParts[2];
+              const name = matchParts[3];
+              const id = `asset:${path}.${name}`;
+
+              if (!assetNodes.has(id)) {
+                  assetNodes.set(id, {
+                      id,
+                      title: name,
+                      tags: ['Asset'],
+                      group: 2,
+                      type: 'asset',
+                      assetType: type
+                  } as any);
+              }
+              
+              links.push({
+                  source: page.id,
+                  target: id
+              });
+          }
+      }
+
+      // 4. Unreal Asset Links from Canvas Blocks
+      if (page.blocks) {
+        page.blocks.forEach((block: any) => {
+            if (block.type === 'asset' && block.content?.reference) {
+                const ref = block.content.reference;
+                const matchParts = ref.match(/^(\w+)'(.*)\.([^']+)'$/);
+                if (matchParts) {
+                    const type = matchParts[1];
+                    const path = matchParts[2];
+                    const name = matchParts[3];
+                    const id = `asset:${path}.${name}`;
+
+                    if (!assetNodes.has(id)) {
+                        assetNodes.set(id, {
+                            id,
+                            title: name,
+                            tags: ['Asset'],
+                            group: 2,
+                            type: 'asset',
+                            assetType: type
+                        } as any);
+                    }
+                    
+                    links.push({
+                        source: page.id,
+                        target: id
+                    });
+                }
+            }
+        });
+      }
     }
   });
+
+  const nodes = [...pageNodes, ...assetNodes.values()];
 
   // SVG
   const svg = d3.select(container.value)
@@ -131,7 +202,7 @@ function initGraph() {
     .call(drag(simulation) as any);
 
   node.append('circle')
-    .attr('r', 8)
+    .attr('r', (d: any) => d.type === 'asset' ? 5 : 8)
     .attr('fill', d => getColor(d.tags))
     .attr('opacity', d => {
       if (!selectedTag.value) return 1;
@@ -147,8 +218,10 @@ function initGraph() {
     .attr('stroke', 'none')
     .style('pointer-events', 'none');
 
-  node.on('click', (_event, d) => {
-    store.setActivePage(d.id);
+  node.on('click', (_event, d: any) => {
+    if (d.type === 'page') {
+        store.setActivePage(d.id);
+    }
   });
 
   // Tick

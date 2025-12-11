@@ -124,6 +124,25 @@ app.get('/api/metadata', async (req, res) => {
   }
 });
 
+// --- Unreal Asset Analysis ---
+import { UAsset } from 'uassetreader';
+
+app.post('/api/analyze-uasset', async (req, res) => {
+  const { path: filePath } = req.body;
+  if (!filePath) {
+    return res.status(400).json({ error: 'Path is required' });
+  }
+
+  try {
+    const asset = new UAsset(filePath);
+    await asset.load();
+    res.json(asset.toJSON());
+  } catch (e) {
+    console.error('Failed to analyze uasset', filePath, e);
+    res.status(500).json({ error: 'Failed to analyze asset: ' + e.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`💾 Storage Server running at http://localhost:${PORT}`);
   console.log(`📂 Saving data to: ${DATA_DIR}`);
