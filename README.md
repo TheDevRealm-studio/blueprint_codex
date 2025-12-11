@@ -1,5 +1,63 @@
-# Vue 3 + TypeScript + Vite
+# Blueprint Codex
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+A powerful documentation tool for Unreal Engine Blueprints, built with Vue 3, TypeScript, and Tauri.
 
-Learn more about the recommended Project Setup and IDE Support in the [Vue Docs TypeScript Guide](https://vuejs.org/guide/typescript/overview.html#project-setup).
+## Features
+- **Visual Graph Editor**: Create and organize documentation nodes visually.
+- **Markdown Editor**: Rich text editing for documentation pages.
+- **Hybrid Storage**:
+  - **Desktop App**: Saves directly to your `Documents/BlueprintCodex` folder.
+  - **Web App**: Uses a local Node.js server to save to the project's `data/` folder.
+- **Cross-Platform**: Runs as a web app or a native desktop application (Mac/Windows).
+
+## Prerequisites
+
+- **Node.js** (v16 or higher)
+- **Rust** (Required for Desktop App mode) - [Install Rust](https://www.rust-lang.org/tools/install)
+
+## Installation
+
+```bash
+npm install
+```
+
+## Development
+
+### Option 1: Desktop App (Recommended)
+Runs as a native window. Data is saved to `~/Documents/BlueprintCodex`.
+
+```bash
+npm run tauri dev
+```
+
+### Option 2: Web App
+Runs in your browser. Requires the local storage server. Data is saved to `./data` in the project folder.
+
+```bash
+npm run dev
+```
+*Note: This command runs both the frontend (Vite) and the backend storage server concurrently. It also exposes the server to your local network.*
+
+## Building for Production
+
+### macOS
+Run this command on a Mac to generate a `.dmg` installer:
+
+```bash
+npm run tauri build
+```
+Output location: `src-tauri/target/release/bundle/macos/`
+
+### Windows
+Run the same command on a Windows machine to generate an `.exe` or `.msi` installer:
+
+```bash
+npm run tauri build
+```
+
+## Project Structure
+
+- `src/` - Vue frontend application
+- `src-tauri/` - Rust backend and Tauri configuration
+- `server.js` - Local Node.js server for web mode
+- `data/` - Local storage location (Web mode only)
