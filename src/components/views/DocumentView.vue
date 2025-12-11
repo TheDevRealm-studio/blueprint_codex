@@ -2,6 +2,9 @@
 import { computed, ref } from 'vue';
 import { useProjectStore } from '../../stores/project';
 import { marked } from 'marked';
+import hljs from 'highlight.js';
+import 'highlight.js/styles/atom-one-dark.css';
+import BlueprintVisualizer from '../BlueprintVisualizer.vue';
 
 const props = defineProps<{ pageId: string }>();
 const store = useProjectStore();
@@ -9,20 +12,50 @@ const showPreview = ref(true);
 
 const page = computed(() => store.project?.pages[props.pageId]);
 
-const compiledMarkdown = computed(() => {
-  if (!page.value) return '';
+interface ContentSegment {
+  type: 'text' | 'blueprint';
+  content: string;
+}
 
-  // Custom renderer for [[WikiLinks]]
-  const renderer = new marked.Renderer();
-
-  // We need to preprocess the markdown to handle [[WikiLinks]] before marked sees it,
-  // or use a custom extension. A simple regex replacement is often easier for basic WikiLinks.
-  // Let's replace [[Page Name]] with a special link format that we can style and handle.
+const parsedContent = computed<ContentSegment[]>(() => {
+  if (!page.value) return [];
 
   let md = page.value.markdownBody;
+  const segments: ContentSegment[] = [];
+  const regex = /```blueprint\s*([\s\S]*?)\s*```/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(md)) !== null) {
+    // Text before match
+    if (match.index > lastIndex) {
+      segments.push({ type: 'text', content: md.slice(lastIndex, match.index) });
+    }
+    // Blueprint match
+    const bpContent = match[1] || '';
+    segments.push({ type: 'blueprint', content: bpContent.trim() });
+    lastIndex = regex.lastIndex;
+  }
+  // Remaining text
+  if (lastIndex < md.length) {
+    segments.push({ type: 'text', content: md.slice(lastIndex) });
+  }
+
+  return segments;
+});
+
+function renderMarkdown(text: string) {
+  // Custom renderer for [[WikiLinks]] and Syntax Highlighting
+  const renderer = new marked.Renderer();
+
+  renderer.code = ({ text, lang }) => {
+    const validLang = lang && hljs.getLanguage(lang) ? lang : 'plaintext';
+    const highlighted = hljs.highlight(text, { language: validLang }).value;
+    return `<pre><code class="hljs language-${validLang}">${highlighted}</code></pre>`;
+  };
 
   // Regex for [[Page Name]] or [[Page Name|Label]]
-  md = md.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, p1, p2) => {
+  const processed = text.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, p1, p2) => {
     const pageName = p1.trim();
     const label = p2 ? p2.trim() : pageName;
     // Find the page ID if it exists
@@ -33,8 +66,8 @@ const compiledMarkdown = computed(() => {
     return `<a href="#" class="wiki-link ${isMissing ? 'missing' : ''}" data-page-id="${targetId}" data-page-name="${pageName}">${label}</a>`;
   });
 
-  return marked(md, { renderer });
-});
+  return marked(processed, { renderer });
+}
 
 function handlePreviewClick(e: MouseEvent) {
   const target = e.target as HTMLElement;
@@ -117,11 +150,24 @@ function handleDrop(e: DragEvent) {
            <span class="w-2 h-2 rounded-full bg-brand-orange"></span>
         </div>
       </div>
-      <div
-        class="flex-1 p-8 prose prose-invert max-w-none overflow-auto custom-scrollbar"
-        v-html="compiledMarkdown"
-        @click="handlePreviewClick"
-      ></div>
+      <div class="flex-1 p-8 prose prose-invert max-w-none overflow-auto custom-scrollbar" @click="handlePreviewClick">
+        <template v-for="(segment, index) in parsedContent" :key="index">
+          <div v-if="segment.type === 'text'" v-html="renderMarkdown(segment.content)"></div>
+          <div v-else-if="segment.type === 'blueprint'" class="my-6 border border-gray-700 rounded-lg overflow-hidden bg-gray-900 not-prose">
+            <div class="bg-gray-800 px-3 py-1 text-xs text-gray-400 border-b border-gray-700 flex justify-between items-center">
+              <span>Blueprint Visualization</span>
+              <button class="hover:text-white" title="Copy Blueprint String">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+              </button>
+            </div>
+            <div class="h-96 relative">
+              <BlueprintVisualizer :blueprint="segment.content" />
+            </div>
+          </div>
+        </template>
+      </div>
     </div>
   </div>
 </template>

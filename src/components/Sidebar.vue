@@ -185,12 +185,21 @@ function importProject() {
 
       <!-- Project Actions -->
       <div class="flex gap-1 mt-2 pt-2 border-t border-gray-700">
-                <button @click="exportProject" class="flex-1 bg-black/20 hover:bg-black/40 text-[10px] text-gray-400 hover:text-white py-1 rounded transition-colors" title="Export Project">
+        <button @click="exportProject" class="flex-1 bg-black/20 hover:bg-black/40 text-[10px] text-gray-400 hover:text-white py-1 rounded transition-colors" title="Export Project">
           Export
         </button>
         <button @click="importProject" class="flex-1 bg-black/20 hover:bg-black/40 text-[10px] text-gray-400 hover:text-white py-1 rounded transition-colors" title="Import Project">
           Import
         </button>
+      </div>
+
+      <!-- Search Trigger -->
+      <div class="mt-2 relative" @click="store.isCommandPaletteOpen = true">
+        <div class="bg-black/30 border border-gray-700 rounded px-2 py-1 text-xs text-gray-500 flex items-center gap-2 cursor-pointer hover:border-gray-500 hover:text-gray-300 transition-all">
+          <span>🔍</span>
+          <span>Search...</span>
+          <span class="ml-auto text-[10px] border border-gray-700 px-1 rounded">Cmd+K</span>
+        </div>
       </div>
     </div>
 

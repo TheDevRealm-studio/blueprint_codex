@@ -2,14 +2,45 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useProjectStore } from '../stores/project';
 import { storeToRefs } from 'pinia';
+import InputModal from './InputModal.vue';
 
 const store = useProjectStore();
-const { project } = storeToRefs(store);
+const { project, isCommandPaletteOpen: isOpen } = storeToRefs(store);
 
-const isOpen = ref(false);
 const searchQuery = ref('');
 const selectedIndex = ref(0);
 const inputRef = ref<HTMLInputElement | null>(null);
+
+// Modal State
+const modalState = ref<{
+  show: boolean;
+  title: string;
+  placeholder: string;
+  mode: 'createPage' | 'createFolder';
+}>({
+  show: false,
+  title: '',
+  placeholder: '',
+  mode: 'createPage'
+});
+
+function openModal(mode: 'createPage' | 'createFolder', title: string, placeholder: string) {
+  modalState.value = {
+    show: true,
+    title,
+    placeholder,
+    mode
+  };
+  isOpen.value = false; // Close palette
+}
+
+function handleModalConfirm(value: string) {
+  if (modalState.value.mode === 'createPage') {
+    store.addPage(value);
+  } else {
+    store.addFolder(value);
+  }
+}
 
 interface Command {
   id: string;
@@ -17,6 +48,9 @@ interface Command {
   type: 'page' | 'action';
   action: () => void;
   icon?: string;
+  description?: string;
+  snippet?: string;
+  score?: number;
 }
 
 const commands = computed<Command[]>(() => {
@@ -28,10 +62,7 @@ const commands = computed<Command[]>(() => {
     title: 'Create New Page',
     type: 'action',
     icon: '📄',
-    action: () => {
-      const title = prompt('Page Title:');
-      if (title) store.addPage(title);
-    }
+    action: () => openModal('createPage', 'New Page', 'Enter page title')
   });
 
   list.push({
@@ -39,10 +70,7 @@ const commands = computed<Command[]>(() => {
     title: 'Create New Folder',
     type: 'action',
     icon: '📁',
-    action: () => {
-      const name = prompt('Folder Name:');
-      if (name) store.addFolder(name);
-    }
+    action: () => openModal('createFolder', 'New Folder', 'Enter folder name')
   });
 
   list.push({
@@ -61,6 +89,7 @@ const commands = computed<Command[]>(() => {
         title: page.title,
         type: 'page',
         icon: '📄',
+        description: page.markdownBody,
         action: () => store.setActivePage(page.id)
       });
     });
@@ -70,12 +99,39 @@ const commands = computed<Command[]>(() => {
 });
 
 const filteredCommands = computed(() => {
-  if (!searchQuery.value) return commands.value.slice(0, 10);
+  if (!searchQuery.value) return commands.value.filter(c => c.type === 'action').slice(0, 10);
   const query = searchQuery.value.toLowerCase();
+  
   return commands.value
-    .filter(c => c.title.toLowerCase().includes(query))
+    .map(cmd => {
+      let score = 0;
+      let snippet = '';
+
+      // Title Match (High Priority)
+      if (cmd.title.toLowerCase().includes(query)) {
+        score += 10;
+      }
+
+      // Content Match (Lower Priority)
+      if (cmd.type === 'page' && cmd.description) {
+        const contentLower = cmd.description.toLowerCase();
+        const idx = contentLower.indexOf(query);
+        if (idx !== -1) {
+          score += 1;
+          // Create snippet
+          const start = Math.max(0, idx - 20);
+          const end = Math.min(cmd.description.length, idx + query.length + 40);
+          snippet = (start > 0 ? '...' : '') + cmd.description.slice(start, end) + (end < cmd.description.length ? '...' : '');
+        }
+      }
+
+      return { ...cmd, score, snippet };
+    })
+    .filter(cmd => cmd.score > 0)
+    .sort((a, b) => b.score - a.score)
     .slice(0, 10);
 });
+
 
 function onKeydown(e: KeyboardEvent) {
   if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -149,7 +205,10 @@ onUnmounted(() => {
           <span class="text-lg">{{ command.icon }}</span>
           <div class="flex flex-col">
             <span class="text-sm font-medium text-gray-200">{{ command.title }}</span>
-            <span class="text-[10px] text-gray-500 uppercase">{{ command.type }}</span>
+            <div class="flex items-center gap-2">
+              <span class="text-[10px] text-gray-500 uppercase">{{ command.type }}</span>
+              <span v-if="command.snippet" class="text-xs text-gray-400 italic truncate max-w-[300px]">...{{ command.snippet }}...</span>
+            </div>
           </div>
         </div>
 
@@ -158,5 +217,13 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+    
+    <InputModal
+      :show="modalState.show"
+      :title="modalState.title"
+      :placeholder="modalState.placeholder"
+      @close="modalState.show = false"
+      @confirm="handleModalConfirm"
+    />
   </div>
 </template>

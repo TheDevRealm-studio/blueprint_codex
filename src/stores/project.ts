@@ -9,6 +9,7 @@ export const useProjectStore = defineStore('project', () => {
   const activePageId = ref<string | null>(null);
   const openPageIds = ref<string[]>([]);
   const viewMode = ref<'editor' | 'graph'>('editor');
+  const isCommandPaletteOpen = ref(false);
 
   const serverStatus = ref<'online' | 'offline' | 'checking'>('checking');
   const saveStatus = ref<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -385,6 +386,7 @@ export const useProjectStore = defineStore('project', () => {
     moveNode,
     importProject,
     serverStatus,
-    saveStatus
+    saveStatus,
+    isCommandPaletteOpen
   };
 });
