@@ -11,7 +11,7 @@ export const useProjectStore = defineStore('project', () => {
   const currentProjectId = ref<string | null>(null);
   const activePageId = ref<string | null>(null);
   const openPageIds = ref<string[]>([]);
-  const viewMode = ref<'editor' | 'graph'>('editor');
+  const viewMode = ref<'editor' | 'graph' | 'project-graph'>('editor');
   const isCommandPaletteOpen = ref(false);
   const showKnowledgeGraph = ref(false);
 
@@ -304,10 +304,10 @@ export const useProjectStore = defineStore('project', () => {
       if (idx !== -1) {
         const node = nodes[idx];
         if (!node) return false;
-        
+
         // Recursively delete content
         deleteContentRecursively(node);
-        
+
         nodes.splice(idx, 1);
         return true;
       }

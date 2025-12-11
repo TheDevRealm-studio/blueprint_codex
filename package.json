@@ -12,6 +12,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@dagrejs/dagre": "^1.1.8",
     "@mariojgt/eu-blueprint-visualizer": "^1.0.2",
     "@tauri-apps/api": "^1.6.0",
     "@types/d3": "^7.4.3",

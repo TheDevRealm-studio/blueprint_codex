@@ -24,7 +24,7 @@ const page = computed(() => store.project?.pages[props.pageId]);
 const nodes = ref<Node[]>([]);
 const edges = ref<Edge[]>([]);
 
-const { onConnect, onNodeDragStop, screenToFlowCoordinate } = useVueFlow();
+const { onConnect, onNodeDragStop, screenToFlowCoordinate, onNodesChange, onEdgesChange } = useVueFlow();
 
 // Sync from Store to Local State
 watch(() => page.value, (newPage: any) => {
@@ -83,6 +83,48 @@ onConnect((params: Connection) => {
   if (page.value) {
     const currentEdges = page.value.edges || [];
     store.updatePage(page.value.id, { edges: [...currentEdges, newEdge] });
+  }
+});
+
+onNodesChange((changes) => {
+  if (!page.value) return;
+
+  let blocksChanged = false;
+  let currentBlocks = [...page.value.blocks];
+
+  changes.forEach((change) => {
+    if (change.type === 'remove') {
+      const index = currentBlocks.findIndex(b => b.id === change.id);
+      if (index !== -1) {
+        currentBlocks.splice(index, 1);
+        blocksChanged = true;
+      }
+    }
+  });
+
+  if (blocksChanged) {
+    store.updatePage(page.value.id, { blocks: currentBlocks });
+  }
+});
+
+onEdgesChange((changes) => {
+  if (!page.value) return;
+
+  let edgesChanged = false;
+  let currentEdges = [...(page.value.edges || [])];
+
+  changes.forEach((change) => {
+    if (change.type === 'remove') {
+      const index = currentEdges.findIndex(e => e.id === change.id);
+      if (index !== -1) {
+        currentEdges.splice(index, 1);
+        edgesChanged = true;
+      }
+    }
+  });
+
+  if (edgesChanged) {
+    store.updatePage(page.value.id, { edges: currentEdges });
   }
 });
 
@@ -155,8 +197,36 @@ async function onDrop(event: DragEvent) {
         x: event.clientX,
         y: event.clientY,
       });
-      
+
       createMediaBlock(assetId, position.x, position.y);
+      return;
+  }
+
+  // 1.6 Handle Unreal Assets
+  const unrealAssetData = event.dataTransfer?.getData('application/x-codex-asset-data');
+  if (unrealAssetData && page.value) {
+      const asset = JSON.parse(unrealAssetData);
+      const position = screenToFlowCoordinate({
+        x: event.clientX,
+        y: event.clientY,
+      });
+
+      // Construct UE Reference format: Type'/Game/Path/Name.Name'
+      // My asset.path is /Game/Path/Name (no extension)
+      const reference = `${asset.asset_type}'${asset.path}.${asset.name}'`;
+
+      const newBlock: Block = {
+          id: crypto.randomUUID(),
+          type: 'asset',
+          content: { reference },
+          x: position.x,
+          y: position.y,
+          width: 250,
+          height: 100
+      };
+
+      const currentBlocks = page.value.blocks || [];
+      store.updatePage(page.value.id, { blocks: [...currentBlocks, newBlock] });
       return;
   }
 
@@ -349,7 +419,7 @@ function createMediaBlock(assetId: string, x: number, y: number) {
     // We can try to guess the kind if we had the metadata, but for now default to 'image' and let MediaDisplay handle it?
     // Actually, MediaDisplay needs 'kind' prop.
     // Let's fetch metadata quickly or just default.
-    
+
     storage.loadAsset(assetId).then(blob => {
         let kind: 'image' | 'video' = 'image';
         if (blob) {

@@ -11,7 +11,6 @@ const props = defineProps<{
 const resolvedUrl = ref<string>('');
 const loading = ref(false);
 const error = ref<string | null>(null);
-const assetName = ref<string>('');
 
 async function loadMedia() {
   if (!props.src) return;
@@ -35,7 +34,7 @@ async function loadMedia() {
     } else {
       error.value = 'File not found';
     }
-    
+
     // Try to load metadata for name if not provided
     if (!props.label) {
         // We can't easily get metadata here without a new storage method or just listing all.

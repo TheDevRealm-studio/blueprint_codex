@@ -5,6 +5,7 @@ import { storeToRefs } from 'pinia';
 import DocumentView from './views/DocumentView.vue';
 import CanvasView from './views/CanvasView.vue';
 import GraphView from './views/GraphView.vue';
+import ProjectGraphView from './views/ProjectGraphView.vue';
 import DashboardView from './views/DashboardView.vue';
 import PageProperties from './PageProperties.vue';
 import { exportPageToMarkdown, downloadMarkdown } from '../utils/export';
@@ -79,6 +80,9 @@ onUnmounted(() => {
 <template>
   <div v-if="viewMode === 'graph'" class="h-full w-full">
     <GraphView />
+  </div>
+  <div v-else-if="viewMode === 'project-graph'" class="h-full w-full">
+    <ProjectGraphView />
   </div>
   <div v-else class="flex flex-col h-full font-mono">
     <!-- Tab Bar -->

@@ -1,5 +1,5 @@
 import type { StorageAdapter } from './types';
-import type { Project } from '../../types';
+import type { Project, Asset } from '../../types';
 
 export class FileSystemStorage implements StorageAdapter {
   private dirHandle: FileSystemDirectoryHandle;
@@ -29,7 +29,7 @@ export class FileSystemStorage implements StorageAdapter {
     await writable.close();
   }
 
-  async saveAsset(file: File): Promise<string> {
+  async saveAsset(file: File): Promise<Asset> {
     // Create assets directory if not exists
     const assetsDir = await this.dirHandle.getDirectoryHandle('assets', { create: true });
 
@@ -42,7 +42,16 @@ export class FileSystemStorage implements StorageAdapter {
     await writable.write(file);
     await writable.close();
 
-    return fileName; // Return filename as ID
+    return {
+      id: fileName,
+      filename: fileName,
+      originalName: file.name,
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      createdAt: Date.now(),
+      tags: []
+    };
   }
 
   async loadAsset(assetId: string): Promise<Blob | null> {
@@ -61,7 +70,15 @@ export class FileSystemStorage implements StorageAdapter {
       const assetsDir = await this.dirHandle.getDirectoryHandle('assets', { create: false });
       await assetsDir.removeEntry(assetId);
     } catch (e) {
-      console.warn(`Failed to delete asset ${assetId}`, e);
+      console.error(`Failed to delete asset ${assetId}`, e);
     }
+  }
+
+  async listAssets(): Promise<Asset[]> {
+    return [];
+  }
+
+  async updateAsset(_assetId: string, _updates: Partial<Asset>): Promise<void> {
+    // Not implemented
   }
 }

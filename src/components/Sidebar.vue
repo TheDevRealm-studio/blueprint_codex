@@ -3,13 +3,14 @@ import { useProjectStore } from '../stores/project';
 import { storeToRefs } from 'pinia';
 import { ref, onMounted } from 'vue';
 import FileSystemItem from './FileSystemItem.vue';
+import UnrealContentBrowser from './UnrealContentBrowser.vue';
 import InputModal from './InputModal.vue';
 import SettingsModal from './SettingsModal.vue';
 import type { FileSystemNode, Asset } from '../types';
 import { storage } from '../services/storage';
-import { 
-  Settings, Search, Image, Video, File, FolderPlus, FilePlus, 
-  RefreshCw, X, Download, Upload, Link, ChevronDown, Plus 
+import {
+  Settings, Search, Image, Video, File, FolderPlus, FilePlus,
+  RefreshCw, X, Download, Upload, Link, ChevronDown, Plus
 } from 'lucide-vue-next';
 
 const store = useProjectStore();
@@ -18,7 +19,7 @@ const showProjectSelect = ref(false);
 const showSettings = ref(false);
 
 // Tabs
-const activeTab = ref<'pages' | 'assets'>('pages');
+const activeTab = ref<'pages' | 'assets' | 'unreal'>('pages');
 const assets = ref<Asset[]>([]);
 
 async function loadAssets() {
@@ -282,19 +283,26 @@ function importProject() {
 
     <!-- Tabs -->
     <div class="flex border-b border-cyber-green/20 bg-cyber-panel shrink-0">
-      <button 
+      <button
         @click="activeTab = 'pages'"
         class="flex-1 py-2 text-[10px] font-bold tracking-wider transition-colors border-b-2"
         :class="activeTab === 'pages' ? 'text-cyber-green border-cyber-green bg-cyber-green/5' : 'text-cyber-text/50 border-transparent hover:text-cyber-text hover:bg-cyber-green/5'"
       >
         PAGES
       </button>
-      <button 
+      <button
         @click="activeTab = 'assets'; loadAssets()"
         class="flex-1 py-2 text-[10px] font-bold tracking-wider transition-colors border-b-2"
         :class="activeTab === 'assets' ? 'text-cyber-green border-cyber-green bg-cyber-green/5' : 'text-cyber-text/50 border-transparent hover:text-cyber-text hover:bg-cyber-green/5'"
       >
         ASSETS
+      </button>
+      <button
+        @click="activeTab = 'unreal'"
+        class="flex-1 py-2 text-[10px] font-bold tracking-wider transition-colors border-b-2"
+        :class="activeTab === 'unreal' ? 'text-cyber-green border-cyber-green bg-cyber-green/5' : 'text-cyber-text/50 border-transparent hover:text-cyber-text hover:bg-cyber-green/5'"
+      >
+        UNREAL
       </button>
     </div>
 
@@ -314,7 +322,7 @@ function importProject() {
         </div>
 
         <!-- Tree View -->
-        <div 
+        <div
           class="flex-1 overflow-y-auto py-2 custom-scrollbar bg-cyber-dark/30"
           @dragover.prevent
           @drop="handleDropToRoot"
@@ -335,7 +343,7 @@ function importProject() {
     </template>
 
     <!-- Assets Tab Content -->
-    <template v-else>
+    <template v-else-if="activeTab === 'assets'">
         <div class="px-3 py-2 flex justify-between items-center bg-cyber-panel/50 border-b border-cyber-green/10 shrink-0">
              <span class="text-[10px] font-bold text-cyber-green/50 uppercase tracking-wider">UPLOADED FILES</span>
              <button @click="loadAssets" class="text-cyber-text hover:text-cyber-green transition-colors p-1 rounded hover:bg-cyber-green/10" title="Refresh">
@@ -343,8 +351,8 @@ function importProject() {
              </button>
         </div>
         <div class="flex-1 overflow-y-auto p-2 custom-scrollbar bg-cyber-dark/30 grid grid-cols-2 gap-2 content-start">
-            <div 
-                v-for="asset in assets" 
+            <div
+                v-for="asset in assets"
                 :key="asset.id"
                 class="aspect-square bg-cyber-dark border border-cyber-green/10 rounded p-1 relative group cursor-grab active:cursor-grabbing hover:border-cyber-green/50 transition-colors"
                 draggable="true"
@@ -361,9 +369,9 @@ function importProject() {
                     </div>
                     <span class="text-[10px] text-cyber-text/70 break-all text-center px-1 line-clamp-2">{{ asset.name }}</span>
                 </div>
-                
+
                 <!-- Delete Button -->
-                <button 
+                <button
                     @click.stop="deleteAsset(asset)"
                     class="absolute top-1 right-1 bg-red-900/80 text-red-200 rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-xs hover:bg-red-700"
                 >
@@ -374,6 +382,11 @@ function importProject() {
                 // NO_ASSETS
             </div>
         </div>
+    </template>
+
+    <!-- Unreal Tab Content -->
+    <template v-else-if="activeTab === 'unreal'">
+      <UnrealContentBrowser />
     </template>
 
     <!-- Context Menu -->
@@ -398,7 +411,7 @@ function importProject() {
       @close="modalState.show = false"
       @confirm="handleModalConfirm"
     />
-    
+
     <SettingsModal :show="showSettings" @close="showSettings = false" />
   </div>
 </template>
