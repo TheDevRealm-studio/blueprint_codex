@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useProjectStore } from '../../stores/project';
 import * as d3 from 'd3';
+import { BarChart2 } from 'lucide-vue-next';
 
 const store = useProjectStore();
 const chartRef = ref<HTMLElement | null>(null);
@@ -98,7 +99,7 @@ function renderChart() {
   <div class="p-8 h-full overflow-y-auto custom-scrollbar">
     <div class="max-w-4xl mx-auto">
       <h2 class="text-2xl font-bold text-cyber-green mb-6 flex items-center gap-2">
-        <span>📊</span> PROJECT_DASHBOARD
+        <BarChart2 class="w-6 h-6" /> PROJECT_DASHBOARD
       </h2>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">

@@ -10,6 +10,7 @@ import PageProperties from './PageProperties.vue';
 import { exportPageToMarkdown, downloadMarkdown } from '../utils/export';
 import type { Block } from '../types';
 import { storage } from '../services/storage';
+import { Info } from 'lucide-vue-next';
 
 const store = useProjectStore();
 const { project, activePageId, viewMode, openPageIds } = storeToRefs(store);
@@ -132,9 +133,7 @@ onUnmounted(() => {
           :class="showProperties ? 'text-cyber-green' : 'text-cyber-text/50'"
           title="Toggle Properties"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
+          <Info class="w-5 h-5" />
         </button>
       </div>
     </div>

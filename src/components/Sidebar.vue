@@ -7,6 +7,10 @@ import InputModal from './InputModal.vue';
 import SettingsModal from './SettingsModal.vue';
 import type { FileSystemNode, Asset } from '../types';
 import { storage } from '../services/storage';
+import { 
+  Settings, Search, Image, Video, File, FolderPlus, FilePlus, 
+  RefreshCw, X, Download, Upload, Link, ChevronDown, Plus 
+} from 'lucide-vue-next';
 
 const store = useProjectStore();
 const { project, projects, currentProjectId } = storeToRefs(store);
@@ -220,29 +224,29 @@ function importProject() {
           </div>
           <span class="font-bold truncate text-cyber-text group-hover:text-cyber-green transition-colors text-sm">{{ project?.name || 'SELECT_PROJECT' }}</span>
         </div>
-        <span class="text-[10px] text-cyber-text/50 group-hover:text-cyber-green transition-colors">▼</span>
+        <ChevronDown class="w-3 h-3 text-cyber-text/50 group-hover:text-cyber-green transition-colors" />
       </div>
 
       <!-- Project Actions -->
       <div class="flex gap-1 mt-2 pt-2 border-t border-cyber-green/10">
-        <button @click="exportProject" class="flex-1 bg-cyber-dark/50 hover:bg-cyber-green/10 border border-transparent hover:border-cyber-green/30 text-[10px] text-cyber-text hover:text-cyber-green py-1 rounded transition-all" title="Export Project">
-          EXPORT
+        <button @click="exportProject" class="flex-1 bg-cyber-dark/50 hover:bg-cyber-green/10 border border-transparent hover:border-cyber-green/30 text-[10px] text-cyber-text hover:text-cyber-green py-1 rounded transition-all flex items-center justify-center gap-1" title="Export Project">
+          <Download class="w-3 h-3" /> EXPORT
         </button>
-        <button @click="importProject" class="flex-1 bg-cyber-dark/50 hover:bg-cyber-green/10 border border-transparent hover:border-cyber-green/30 text-[10px] text-cyber-text hover:text-cyber-green py-1 rounded transition-all" title="Import Project">
-          IMPORT
+        <button @click="importProject" class="flex-1 bg-cyber-dark/50 hover:bg-cyber-green/10 border border-transparent hover:border-cyber-green/30 text-[10px] text-cyber-text hover:text-cyber-green py-1 rounded transition-all flex items-center justify-center gap-1" title="Import Project">
+          <Upload class="w-3 h-3" /> IMPORT
         </button>
-        <button @click="store.linkUnrealProject" class="flex-1 bg-cyber-dark/50 hover:bg-cyber-green/10 border border-transparent hover:border-cyber-green/30 text-[10px] text-cyber-text hover:text-cyber-green py-1 rounded transition-all" :title="project?.unrealProjectPath ? 'Linked: ' + project.unrealProjectPath : 'Link Unreal Project'">
-          {{ project?.unrealProjectPath ? 'LINKED' : 'LINK_UE' }}
+        <button @click="store.linkUnrealProject" class="flex-1 bg-cyber-dark/50 hover:bg-cyber-green/10 border border-transparent hover:border-cyber-green/30 text-[10px] text-cyber-text hover:text-cyber-green py-1 rounded transition-all flex items-center justify-center gap-1" :title="project?.unrealProjectPath ? 'Linked: ' + project.unrealProjectPath : 'Link Unreal Project'">
+          <Link class="w-3 h-3" /> {{ project?.unrealProjectPath ? 'LINKED' : 'LINK_UE' }}
         </button>
-        <button @click="showSettings = true" class="flex-1 bg-cyber-dark/50 hover:bg-cyber-green/10 border border-transparent hover:border-cyber-green/30 text-[10px] text-cyber-text hover:text-cyber-green py-1 rounded transition-all" title="Settings">
-          ⚙️
+        <button @click="showSettings = true" class="flex-1 bg-cyber-dark/50 hover:bg-cyber-green/10 border border-transparent hover:border-cyber-green/30 text-[10px] text-cyber-text hover:text-cyber-green py-1 rounded transition-all flex items-center justify-center" title="Settings">
+          <Settings class="w-3 h-3" />
         </button>
       </div>
 
       <!-- Search Trigger -->
       <div class="mt-2 relative" @click="store.isCommandPaletteOpen = true">
         <div class="bg-cyber-dark/50 border border-cyber-green/20 rounded px-2 py-1 text-xs text-cyber-text/70 flex items-center gap-2 cursor-pointer hover:border-cyber-green/50 hover:text-cyber-green transition-all">
-          <span>🔍</span>
+          <Search class="w-3 h-3" />
           <span>SEARCH...</span>
           <span class="ml-auto text-[10px] border border-cyber-green/20 px-1 rounded text-cyber-green/70">CMD+K</span>
         </div>
@@ -265,7 +269,7 @@ function importProject() {
         @click="createNewProject"
         class="px-4 py-2 text-sm cursor-pointer text-cyber-green hover:bg-cyber-green/10 border-t border-cyber-green/20 flex items-center gap-2 font-medium"
       >
-        <span>+</span> NEW_PROJECT
+        <Plus class="w-3 h-3" /> NEW_PROJECT
       </div>
     </div>
 
@@ -294,10 +298,10 @@ function importProject() {
           <span class="text-[10px] font-bold text-cyber-green/50 uppercase tracking-wider">STRUCTURE</span>
           <div class="flex gap-1">
             <button @click="createFolder" class="text-cyber-text hover:text-cyber-green transition-colors p-1 rounded hover:bg-cyber-green/10" title="New Folder">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>
+                <FolderPlus class="w-3.5 h-3.5" />
             </button>
             <button @click="createPage" class="text-cyber-text hover:text-cyber-green transition-colors p-1 rounded hover:bg-cyber-green/10" title="New Page">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+                <FilePlus class="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
@@ -324,7 +328,7 @@ function importProject() {
         <div class="px-3 py-2 flex justify-between items-center bg-cyber-panel/50 border-b border-cyber-green/10 shrink-0">
              <span class="text-[10px] font-bold text-cyber-green/50 uppercase tracking-wider">UPLOADED FILES</span>
              <button @click="loadAssets" class="text-cyber-text hover:text-cyber-green transition-colors p-1 rounded hover:bg-cyber-green/10" title="Refresh">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                <RefreshCw class="w-3.5 h-3.5" />
              </button>
         </div>
         <div class="flex-1 overflow-y-auto p-2 custom-scrollbar bg-cyber-dark/30 grid grid-cols-2 gap-2 content-start">
@@ -339,8 +343,10 @@ function importProject() {
             >
                 <!-- Preview -->
                 <div class="w-full h-full flex items-center justify-center bg-black/20 rounded overflow-hidden flex-col">
-                    <div class="text-2xl mb-1">
-                        {{ asset.type.startsWith('image') ? '🖼️' : asset.type.startsWith('video') ? '🎬' : '📄' }}
+                    <div class="mb-1 text-cyber-text/50">
+                        <Image v-if="asset.type.startsWith('image')" class="w-8 h-8" />
+                        <Video v-else-if="asset.type.startsWith('video')" class="w-8 h-8" />
+                        <File v-else class="w-8 h-8" />
                     </div>
                     <span class="text-[10px] text-cyber-text/70 break-all text-center px-1 line-clamp-2">{{ asset.name }}</span>
                 </div>
@@ -350,7 +356,7 @@ function importProject() {
                     @click.stop="deleteAsset(asset)"
                     class="absolute top-1 right-1 bg-red-900/80 text-red-200 rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-xs hover:bg-red-700"
                 >
-                    ×
+                    <X class="w-3 h-3" />
                 </button>
             </div>
              <div v-if="assets.length === 0" class="col-span-2 text-cyber-text/40 text-xs text-center mt-8 italic font-mono">

@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue';
 import { open } from '@tauri-apps/api/dialog';
 import { storage } from '../services/storage';
 import { TauriStorage } from '../services/storage/TauriStorage';
+import { X } from 'lucide-vue-next';
 
 const props = defineProps<{
   show: boolean;
@@ -52,7 +53,9 @@ async function selectFolder() {
     <div class="bg-cyber-panel border border-cyber-green/30 rounded-lg w-96 shadow-[0_0_30px_rgba(0,255,157,0.2)] overflow-hidden">
       <div class="bg-cyber-header px-4 py-3 border-b border-cyber-green/20 flex justify-between items-center">
         <h3 class="text-cyber-green font-bold tracking-wider">SETTINGS</h3>
-        <button @click="$emit('close')" class="text-cyber-text hover:text-cyber-green transition-colors">✕</button>
+        <button @click="$emit('close')" class="text-cyber-text hover:text-cyber-green transition-colors">
+            <X class="w-4 h-4" />
+        </button>
       </div>
       
       <div class="p-6 space-y-4">

@@ -4,6 +4,7 @@ import Editor from './components/Editor.vue';
 import CommandPalette from './components/CommandPalette.vue';
 import KnowledgeGraph from './components/views/KnowledgeGraph.vue';
 import { useProjectStore } from './stores/project';
+import { Code, Zap } from 'lucide-vue-next';
 
 const projectStore = useProjectStore();
 </script>
@@ -13,7 +14,7 @@ const projectStore = useProjectStore();
     <CommandPalette />
     <header class="h-12 bg-cyber-panel border-b border-cyber-green/20 flex items-center px-4 shrink-0 justify-between backdrop-blur-sm bg-opacity-90">
       <h1 class="text-lg font-bold text-cyber-green tracking-wider flex items-center gap-2">
-        <span class="text-cyber-purple">&lt;&gt;</span>
+        <Code class="w-5 h-5 text-cyber-purple" />
         BLUEPRINT_CODEX
       </h1>
 
@@ -23,7 +24,7 @@ const projectStore = useProjectStore();
           class="px-3 py-1 rounded border border-cyber-blue/30 text-cyber-blue hover:bg-cyber-blue/10 transition-all flex items-center gap-2"
           :class="{ 'bg-cyber-blue/20 border-cyber-blue': projectStore.showKnowledgeGraph }"
         >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+          <Zap class="w-4 h-4" />
           {{ projectStore.showKnowledgeGraph ? 'CLOSE_GRAPH' : 'KNOWLEDGE_GRAPH' }}
         </button>
 

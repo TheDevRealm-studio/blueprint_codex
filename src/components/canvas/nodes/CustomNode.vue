@@ -10,6 +10,7 @@ import type { Pin } from '../../../types';
 import '@vue-flow/node-resizer/dist/style.css';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/atom-one-dark.css';
+import { Network, Image, ListOrdered, Link, Code, Package, Youtube, Globe, Type, X, Plus } from 'lucide-vue-next';
 
 const props = defineProps<{
   id: string;
@@ -63,15 +64,15 @@ const headerColor = computed(() => {
 
 const icon = computed(() => {
   switch (props.data.type) {
-    case 'blueprint': return '🕸️';
-    case 'media': return '🖼️';
-    case 'steps': return '🔢';
-    case 'link': return '🔗';
-    case 'code': return '💻';
-    case 'asset': return '📦';
-    case 'youtube': return '📺';
-    case 'website': return '🌐';
-    default: return '📝';
+    case 'blueprint': return Network;
+    case 'media': return Image;
+    case 'steps': return ListOrdered;
+    case 'link': return Link;
+    case 'code': return Code;
+    case 'asset': return Package;
+    case 'youtube': return Youtube;
+    case 'website': return Globe;
+    default: return Type;
   }
 });
 
@@ -268,11 +269,15 @@ function onResizeEnd(event: any) {
             <Handle :id="pin.id" type="target" :position="Position.Left" class="!bg-ue-accent !w-3 !h-3 !border !border-white" />
             <!-- Pin Label/Delete -->
             <div class="absolute left-4 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover/pin:opacity-100 transition-opacity bg-black/90 px-1 rounded border border-gray-700">
-                <button @click.stop="removePin(pin.id)" class="text-red-500 hover:text-red-400 text-[10px] font-bold px-1">×</button>
+                <button @click.stop="removePin(pin.id)" class="text-red-500 hover:text-red-400 text-[10px] font-bold px-1">
+                    <X class="w-3 h-3" />
+                </button>
             </div>
         </div>
         <!-- Add Input Button -->
-        <button @click.stop="addPin('target')" class="pointer-events-auto ml-[-8px] mt-2 w-4 h-4 rounded-full bg-gray-700 hover:bg-green-500 text-white flex items-center justify-center text-[10px] shadow border border-black transition-colors" title="Add Input Pin">+</button>
+        <button @click.stop="addPin('target')" class="pointer-events-auto ml-[-8px] mt-2 w-4 h-4 rounded-full bg-gray-700 hover:bg-green-500 text-white flex items-center justify-center text-[10px] shadow border border-black transition-colors" title="Add Input Pin">
+            <Plus class="w-3 h-3" />
+        </button>
     </div>
 
     <!-- Extra Outputs -->
@@ -281,20 +286,26 @@ function onResizeEnd(event: any) {
             <Handle :id="pin.id" type="source" :position="Position.Right" class="!bg-ue-accent !w-3 !h-3 !border !border-white" />
              <!-- Pin Label/Delete -->
             <div class="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover/pin:opacity-100 transition-opacity bg-black/90 px-1 rounded border border-gray-700">
-                <button @click.stop="removePin(pin.id)" class="text-red-500 hover:text-red-400 text-[10px] font-bold px-1">×</button>
+                <button @click.stop="removePin(pin.id)" class="text-red-500 hover:text-red-400 text-[10px] font-bold px-1">
+                    <X class="w-3 h-3" />
+                </button>
             </div>
         </div>
         <!-- Add Output Button -->
-        <button @click.stop="addPin('source')" class="pointer-events-auto mr-[-8px] mt-2 w-4 h-4 rounded-full bg-gray-700 hover:bg-green-500 text-white flex items-center justify-center text-[10px] shadow border border-black transition-colors" title="Add Output Pin">+</button>
+        <button @click.stop="addPin('source')" class="pointer-events-auto mr-[-8px] mt-2 w-4 h-4 rounded-full bg-gray-700 hover:bg-green-500 text-white flex items-center justify-center text-[10px] shadow border border-black transition-colors" title="Add Output Pin">
+            <Plus class="w-3 h-3" />
+        </button>
     </div>
 
     <!-- Header -->
     <div :class="['px-3 py-1 flex items-center justify-between text-xs font-bold text-white uppercase tracking-wider handle', headerColor]">
       <div class="flex items-center gap-2">
-        <span>{{ icon }}</span>
+        <component :is="icon" class="w-4 h-4" />
         <span>{{ data.label || 'Block' }}</span>
       </div>
-      <button @click.stop="deleteBlock" class="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">×</button>
+      <button @click.stop="deleteBlock" class="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+        <X class="w-4 h-4" />
+      </button>
     </div>
 
     <!-- Content -->

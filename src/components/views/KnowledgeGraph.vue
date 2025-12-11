@@ -4,7 +4,7 @@
       <div class="text-xs text-gray-400 mb-2">Graph Controls</div>
       <div class="flex gap-2">
         <button @click="resetZoom" class="p-1 hover:bg-[#3e3e42] rounded" title="Reset View">
-          <svg class="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"></path></svg>
+          <Maximize class="w-4 h-4 text-gray-300" />
         </button>
       </div>
     </div>
@@ -22,6 +22,7 @@
 import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
 import * as d3 from 'd3';
 import { useProjectStore } from '../../stores/project';
+import { Maximize } from 'lucide-vue-next';
 
 const store = useProjectStore();
 const svgRef = ref<SVGSVGElement | null>(null);

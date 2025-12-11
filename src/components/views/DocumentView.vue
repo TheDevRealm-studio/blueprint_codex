@@ -6,6 +6,10 @@ import { marked } from 'marked';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/atom-one-dark.css';
 import BlueprintVisualizer from '../BlueprintVisualizer.vue';
+import { 
+  Bold, Italic, Heading1, Heading2, Heading3, Link, Network, 
+  Eye, EyeOff, Copy 
+} from 'lucide-vue-next';
 
 const props = defineProps<{ pageId: string }>();
 const store = useProjectStore();
@@ -429,7 +433,7 @@ function triggerInsertLink() {
          class="fixed z-50 bg-cyber-panel border border-cyber-green/30 shadow-[0_0_15px_rgba(0,0,0,0.5)] rounded py-1 min-w-[150px]"
          :style="{ top: editorContextMenu.y + 'px', left: editorContextMenu.x + 'px' }">
       <div @click="triggerInsertLink" class="px-4 py-1 text-sm text-cyber-text hover:bg-cyber-green/20 hover:text-cyber-green cursor-pointer flex items-center gap-2">
-        <span>🔗</span> INSERT_LINK
+        <Link class="w-3 h-3" /> INSERT_LINK
       </div>
     </div>
 
@@ -450,25 +454,36 @@ function triggerInsertLink() {
       <!-- Toolbar -->
       <div class="bg-cyber-panel px-2 py-1 flex items-center gap-1 border-b border-cyber-green/20 overflow-x-auto custom-scrollbar">
         <button @click="insertText('**', '**')" class="p-1.5 rounded hover:bg-cyber-green/10 text-cyber-text hover:text-cyber-green transition-colors" title="Bold">
-            <span class="font-bold">B</span>
+            <Bold class="w-3.5 h-3.5" />
         </button>
         <button @click="insertText('*', '*')" class="p-1.5 rounded hover:bg-cyber-green/10 text-cyber-text hover:text-cyber-green transition-colors" title="Italic">
-            <span class="italic">I</span>
+            <Italic class="w-3.5 h-3.5" />
         </button>
         <div class="w-[1px] h-4 bg-cyber-green/20 mx-1"></div>
-        <button @click="insertText('# ')" class="p-1.5 rounded hover:bg-cyber-green/10 text-cyber-text hover:text-cyber-green transition-colors" title="Heading 1">H1</button>
-        <button @click="insertText('## ')" class="p-1.5 rounded hover:bg-cyber-green/10 text-cyber-text hover:text-cyber-green transition-colors" title="Heading 2">H2</button>
-        <button @click="insertText('### ')" class="p-1.5 rounded hover:bg-cyber-green/10 text-cyber-text hover:text-cyber-green transition-colors" title="Heading 3">H3</button>
+        <button @click="insertText('# ')" class="p-1.5 rounded hover:bg-cyber-green/10 text-cyber-text hover:text-cyber-green transition-colors" title="Heading 1">
+            <Heading1 class="w-3.5 h-3.5" />
+        </button>
+        <button @click="insertText('## ')" class="p-1.5 rounded hover:bg-cyber-green/10 text-cyber-text hover:text-cyber-green transition-colors" title="Heading 2">
+            <Heading2 class="w-3.5 h-3.5" />
+        </button>
+        <button @click="insertText('### ')" class="p-1.5 rounded hover:bg-cyber-green/10 text-cyber-text hover:text-cyber-green transition-colors" title="Heading 3">
+            <Heading3 class="w-3.5 h-3.5" />
+        </button>
         <div class="w-[1px] h-4 bg-cyber-green/20 mx-1"></div>
-        <button @click="insertText('[[', ']]')" class="p-1.5 rounded hover:bg-cyber-green/10 text-cyber-text hover:text-cyber-green transition-colors" title="Link Page">🔗</button>
-        <button @click="insertText('```blueprint\n', '\n```')" class="p-1.5 rounded hover:bg-cyber-green/10 text-cyber-text hover:text-cyber-green transition-colors" title="Code Block">🕸️</button>
+        <button @click="insertText('[[', ']]')" class="p-1.5 rounded hover:bg-cyber-green/10 text-cyber-text hover:text-cyber-green transition-colors" title="Link Page">
+            <Link class="w-3.5 h-3.5" />
+        </button>
+        <button @click="insertText('```blueprint\n', '\n```')" class="p-1.5 rounded hover:bg-cyber-green/10 text-cyber-text hover:text-cyber-green transition-colors" title="Code Block">
+            <Network class="w-3.5 h-3.5" />
+        </button>
         
         <div class="flex-1"></div>
         
         <button
           @click="showPreview = !showPreview"
-          class="text-xs text-cyber-purple hover:text-cyber-green font-mono transition-colors px-2"
+          class="text-xs text-cyber-purple hover:text-cyber-green font-mono transition-colors px-2 flex items-center gap-1"
         >
+          <component :is="showPreview ? EyeOff : Eye" class="w-3 h-3" />
           {{ showPreview ? '[ HIDE ]' : '[ PREVIEW ]' }}
         </button>
       </div>
@@ -504,9 +519,7 @@ function triggerInsertLink() {
             <div class="bg-cyber-panel px-3 py-1 text-xs text-cyber-text/70 border-b border-cyber-green/20 flex justify-between items-center">
               <span class="font-mono text-cyber-blue">BLUEPRINT_VISUALIZATION</span>
               <button class="hover:text-cyber-green transition-colors" title="Copy Blueprint String">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                </svg>
+                <Copy class="w-3.5 h-3.5" />
               </button>
             </div>
             <div class="h-96 relative">

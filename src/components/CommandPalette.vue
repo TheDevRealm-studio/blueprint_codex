@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted, nextTick, type Component } from 'vue';
 import { useProjectStore } from '../stores/project';
 import { storeToRefs } from 'pinia';
 import InputModal from './InputModal.vue';
+import { Search, FileText, FolderPlus, Network, FilePlus } from 'lucide-vue-next';
 
 const store = useProjectStore();
 const { project, isCommandPaletteOpen: isOpen } = storeToRefs(store);
@@ -47,7 +48,7 @@ interface Command {
   title: string;
   type: 'page' | 'action';
   action: () => void;
-  icon?: string;
+  icon?: Component;
   description?: string;
   snippet?: string;
   score?: number;
@@ -61,7 +62,7 @@ const commands = computed<Command[]>(() => {
     id: 'new-page',
     title: 'Create New Page',
     type: 'action',
-    icon: '📄',
+    icon: FilePlus,
     action: () => openModal('createPage', 'New Page', 'Enter page title')
   });
 
@@ -69,7 +70,7 @@ const commands = computed<Command[]>(() => {
     id: 'new-folder',
     title: 'Create New Folder',
     type: 'action',
-    icon: '📁',
+    icon: FolderPlus,
     action: () => openModal('createFolder', 'New Folder', 'Enter folder name')
   });
 
@@ -77,7 +78,7 @@ const commands = computed<Command[]>(() => {
     id: 'toggle-graph',
     title: 'Toggle Graph View',
     type: 'action',
-    icon: '🕸️',
+    icon: Network,
     action: () => store.setViewMode('graph')
   });
 
@@ -88,7 +89,7 @@ const commands = computed<Command[]>(() => {
         id: page.id,
         title: page.title,
         type: 'page',
-        icon: '📄',
+        icon: FileText,
         description: page.markdownBody,
         action: () => store.setActivePage(page.id)
       });
@@ -183,7 +184,7 @@ onUnmounted(() => {
 
     <div class="relative w-[600px] bg-ue-panel border border-ue-accent shadow-2xl rounded-lg overflow-hidden flex flex-col max-h-[400px]">
       <div class="p-3 border-b border-gray-700 flex items-center gap-3">
-        <span class="text-gray-400">🔍</span>
+        <Search class="w-5 h-5 text-gray-400" />
         <input
           ref="inputRef"
           v-model="searchQuery"
@@ -202,7 +203,7 @@ onUnmounted(() => {
           class="px-4 py-3 flex items-center gap-3 cursor-pointer border-l-2"
           :class="index === selectedIndex ? 'bg-ue-accent/20 border-ue-accent' : 'border-transparent hover:bg-white/5'"
         >
-          <span class="text-lg">{{ command.icon }}</span>
+          <component :is="command.icon" class="w-5 h-5 text-gray-400" />
           <div class="flex flex-col">
             <span class="text-sm font-medium text-gray-200">{{ command.title }}</span>
             <div class="flex items-center gap-2">

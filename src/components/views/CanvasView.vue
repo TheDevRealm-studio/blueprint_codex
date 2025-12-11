@@ -7,6 +7,7 @@ import { VueFlow, useVueFlow, type Node, type Edge, type Connection } from '@vue
 import { Background } from '@vue-flow/background';
 import { Controls } from '@vue-flow/controls';
 import CustomNode from '../canvas/nodes/CustomNode.vue';
+import { Type, ListOrdered, Image, Network, Code, Package } from 'lucide-vue-next';
 
 // Import Vue Flow styles
 import '@vue-flow/core/dist/style.css';
@@ -376,12 +377,12 @@ onUnmounted(() => {
 // --- Toolbar ---
 
 const availableBlocks = [
-  { type: 'text', label: 'Text Block', icon: '📝' },
-  { type: 'steps', label: 'Steps List', icon: '🔢' },
-  { type: 'media', label: 'Media', icon: '🖼️' },
-  { type: 'blueprint', label: 'Blueprint', icon: '🕸️' },
-  { type: 'code', label: 'Code', icon: '💻' },
-  { type: 'asset', label: 'Asset Ref', icon: '📦' },
+  { type: 'text', label: 'Text Block', icon: Type },
+  { type: 'steps', label: 'Steps List', icon: ListOrdered },
+  { type: 'media', label: 'Media', icon: Image },
+  { type: 'blueprint', label: 'Blueprint', icon: Network },
+  { type: 'code', label: 'Code', icon: Code },
+  { type: 'asset', label: 'Asset Ref', icon: Package },
 ];
 
 function addBlock(type: Block['type']) {
@@ -461,7 +462,7 @@ function getDefaultContent(type: Block['type']) {
         class="flex flex-col items-center justify-center w-16 h-14 rounded hover:bg-white/10 transition-colors group"
         :title="block.label"
       >
-        <span class="text-xl mb-1 group-hover:scale-110 transition-transform">{{ block.icon }}</span>
+        <component :is="block.icon" class="w-5 h-5 mb-1 text-gray-300 group-hover:text-white group-hover:scale-110 transition-all" />
         <span class="text-[10px] text-gray-400 uppercase font-bold">{{ block.label.split(' ')[0] }}</span>
       </button>
     </div>

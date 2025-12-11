@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import type { FileSystemNode } from '../types';
 import { useProjectStore } from '../stores/project';
+import { ChevronDown, ChevronRight, Folder, FileText } from 'lucide-vue-next';
 
 const props = defineProps<{
   node: FileSystemNode;
@@ -68,17 +69,18 @@ function handleContextMenu(e: MouseEvent) {
       :style="{ paddingLeft: `${depth * 12 + 8}px` }"
     >
       <!-- Folder Icon / Arrow -->
-      <span v-if="isFolder" class="text-[10px] w-4 text-center text-gray-500">
-        {{ node.isOpen ? '▼' : '▶' }}
+      <span v-if="isFolder" class="text-[10px] w-4 text-center text-gray-500 flex items-center justify-center">
+        <ChevronDown v-if="node.isOpen" class="w-3 h-3" />
+        <ChevronRight v-else class="w-3 h-3" />
       </span>
 
       <!-- Type Icon -->
-      <span class="text-sm opacity-80">
+      <span class="text-sm opacity-80 flex items-center">
         <template v-if="isFolder">
-            <span class="text-brand-orange">📁</span>
+            <Folder class="w-3.5 h-3.5 text-brand-orange" />
         </template>
         <template v-else>
-            <span class="text-brand-purple">📄</span>
+            <FileText class="w-3.5 h-3.5 text-brand-purple" />
         </template>
       </span>
 
