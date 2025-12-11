@@ -3,11 +3,28 @@ import { useProjectStore } from '../stores/project';
 import { storeToRefs } from 'pinia';
 import { ref } from 'vue';
 import FileSystemItem from './FileSystemItem.vue';
+import InputModal from './InputModal.vue';
 import type { FileSystemNode } from '../types';
 
 const store = useProjectStore();
 const { project, projects, currentProjectId } = storeToRefs(store);
 const showProjectSelect = ref(false);
+
+// Modal State
+const modalState = ref<{
+  show: boolean;
+  title: string;
+  placeholder: string;
+  initialValue: string;
+  mode: 'createPage' | 'createFolder' | 'createProject' | 'rename' | 'createPageInFolder' | 'createFolderInFolder';
+  targetId?: string;
+}>({
+  show: false,
+  title: '',
+  placeholder: '',
+  initialValue: '',
+  mode: 'createPage'
+});
 
 const contextMenu = ref<{
   visible: boolean;
@@ -21,26 +38,53 @@ const contextMenu = ref<{
   node: null
 });
 
-function createPage() {
-  const title = prompt('Page Title:');
-  if (title) {
-    store.addPage(title);
+function openModal(mode: typeof modalState.value.mode, title: string, placeholder: string, initialValue = '', targetId?: string) {
+  modalState.value = {
+    show: true,
+    title,
+    placeholder,
+    initialValue,
+    mode,
+    targetId
+  };
+}
+
+function handleModalConfirm(value: string) {
+  const { mode, targetId } = modalState.value;
+  
+  switch (mode) {
+    case 'createPage':
+      store.addPage(value);
+      break;
+    case 'createFolder':
+      store.addFolder(value);
+      break;
+    case 'createProject':
+      store.createProject(value);
+      showProjectSelect.value = false;
+      break;
+    case 'rename':
+      if (targetId) store.renameNode(targetId, value);
+      break;
+    case 'createPageInFolder':
+      if (targetId) store.addPage(value, targetId);
+      break;
+    case 'createFolderInFolder':
+      if (targetId) store.addFolder(value, targetId);
+      break;
   }
+}
+
+function createPage() {
+  openModal('createPage', 'New Page', 'Enter page title');
 }
 
 function createFolder() {
-    const name = prompt('Folder Name:');
-    if (name) {
-        store.addFolder(name);
-    }
+  openModal('createFolder', 'New Folder', 'Enter folder name');
 }
 
 function createNewProject() {
-  const name = prompt('Project Name:');
-  if (name) {
-    store.createProject(name);
-    showProjectSelect.value = false;
-  }
+  openModal('createProject', 'New Project', 'Enter project name');
 }
 
 function openContextMenu(e: MouseEvent, node: FileSystemNode) {
@@ -61,10 +105,7 @@ function closeContextMenu() {
 
 function handleRename() {
   if (!contextMenu.value.node) return;
-  const newName = prompt('Rename to:', contextMenu.value.node.name);
-  if (newName) {
-    store.renameNode(contextMenu.value.node.id, newName);
-  }
+  openModal('rename', 'Rename Item', 'Enter new name', contextMenu.value.node.name, contextMenu.value.node.id);
 }
 
 function handleDelete() {
@@ -76,18 +117,12 @@ function handleDelete() {
 
 function handleNewPageInFolder() {
     if (!contextMenu.value.node) return;
-    const title = prompt('Page Title:');
-    if (title) {
-        store.addPage(title, contextMenu.value.node.id);
-    }
+    openModal('createPageInFolder', 'New Page', 'Enter page title', '', contextMenu.value.node.id);
 }
 
 function handleNewFolderInFolder() {
     if (!contextMenu.value.node) return;
-    const name = prompt('Folder Name:');
-    if (name) {
-        store.addFolder(name, contextMenu.value.node.id);
-    }
+    openModal('createFolderInFolder', 'New Folder', 'Enter folder name', '', contextMenu.value.node.id);
 }
 
 function exportProject() {
@@ -129,17 +164,6 @@ function importProject() {
   input.click();
 }
 
-async function openLocalFolder() {
-  try {
-    // @ts-ignore
-    const handle = await window.showDirectoryPicker();
-    if (handle) {
-      await store.useFileSystem(handle);
-    }
-  } catch (e) {
-    console.error('Failed to open folder', e);
-  }
-}
 </script>
 
 <template>
@@ -161,10 +185,7 @@ async function openLocalFolder() {
 
       <!-- Project Actions -->
       <div class="flex gap-1 mt-2 pt-2 border-t border-gray-700">
-        <button @click="openLocalFolder" class="flex-1 bg-black/20 hover:bg-black/40 text-[10px] text-gray-400 hover:text-white py-1 rounded transition-colors" title="Open Local Folder">
-          📂 Open
-        </button>
-        <button @click="exportProject" class="flex-1 bg-black/20 hover:bg-black/40 text-[10px] text-gray-400 hover:text-white py-1 rounded transition-colors" title="Export Project">
+                <button @click="exportProject" class="flex-1 bg-black/20 hover:bg-black/40 text-[10px] text-gray-400 hover:text-white py-1 rounded transition-colors" title="Export Project">
           Export
         </button>
         <button @click="importProject" class="flex-1 bg-black/20 hover:bg-black/40 text-[10px] text-gray-400 hover:text-white py-1 rounded transition-colors" title="Import Project">
@@ -237,5 +258,14 @@ async function openLocalFolder() {
       <div v-if="contextMenu.node?.type === 'folder'" @click="handleNewPageInFolder" class="px-4 py-1 text-xs text-gray-300 hover:bg-ue-accent hover:text-white cursor-pointer">New Page</div>
       <div v-if="contextMenu.node?.type === 'folder'" @click="handleNewFolderInFolder" class="px-4 py-1 text-xs text-gray-300 hover:bg-ue-accent hover:text-white cursor-pointer">New Folder</div>
     </div>
+
+    <InputModal
+      :show="modalState.show"
+      :title="modalState.title"
+      :placeholder="modalState.placeholder"
+      :initial-value="modalState.initialValue"
+      @close="modalState.show = false"
+      @confirm="handleModalConfirm"
+    />
   </div>
 </template>

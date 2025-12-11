@@ -1,25 +1,29 @@
+import { ServerStorage } from './ServerStorage';
 import type { StorageAdapter } from './types';
 import type { Project } from '../../types';
 
-// Temporary in-memory storage until a folder is selected
-class MemoryStorage implements StorageAdapter {
-  async loadProjects(): Promise<Project[]> { return []; }
-  async saveProjects(_projects: Project[]): Promise<void> { 
-    // console.warn('Project is in memory only. Open a local folder to save.');
-  }
-  async saveAsset(_file: File): Promise<string> { 
-    console.warn('Assets cannot be saved in memory mode.');
-    return ''; 
-  }
-  async loadAsset(_assetId: string): Promise<Blob | null> { return null; }
-  async deleteAsset(_assetId: string): Promise<void> {}
-}
-
 class StorageManager implements StorageAdapter {
   private adapter: StorageAdapter;
+  private initPromise: Promise<void>;
 
   constructor() {
-    this.adapter = new MemoryStorage();
+    // Default to Server Storage (Localhost)
+    this.adapter = new ServerStorage();
+    this.initPromise = this.init();
+  }
+
+  private async init() {
+    // Check if running in Tauri
+    // @ts-ignore
+    if (window.__TAURI__) {
+      try {
+        const { TauriStorage } = await import('./TauriStorage');
+        this.adapter = new TauriStorage();
+        console.log('Storage: Switched to Tauri Storage');
+      } catch (e) {
+        console.error('Failed to initialize Tauri storage', e);
+      }
+    }
   }
 
   setAdapter(adapter: StorageAdapter) {
@@ -30,11 +34,30 @@ class StorageManager implements StorageAdapter {
     return this.adapter;
   }
 
-  loadProjects() { return this.adapter.loadProjects(); }
-  saveProjects(projects: Project[]) { return this.adapter.saveProjects(projects); }
-  saveAsset(file: File) { return this.adapter.saveAsset(file); }
-  loadAsset(assetId: string) { return this.adapter.loadAsset(assetId); }
-  deleteAsset(assetId: string) { return this.adapter.deleteAsset(assetId); }
+  async loadProjects() {
+    await this.initPromise;
+    return this.adapter.loadProjects();
+  }
+
+  async saveProjects(projects: Project[]) {
+    await this.initPromise;
+    return this.adapter.saveProjects(projects);
+  }
+
+  async saveAsset(file: File) {
+    await this.initPromise;
+    return this.adapter.saveAsset(file);
+  }
+
+  async loadAsset(assetId: string) {
+    await this.initPromise;
+    return this.adapter.loadAsset(assetId);
+  }
+
+  async deleteAsset(assetId: string) {
+    await this.initPromise;
+    return this.adapter.deleteAsset(assetId);
+  }
 }
 
 export const storage = new StorageManager();

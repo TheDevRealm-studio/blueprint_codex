@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local Storage Data
+data/
+
+# Tauri
+src-tauri/target/
+

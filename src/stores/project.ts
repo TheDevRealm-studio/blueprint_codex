@@ -10,10 +10,27 @@ export const useProjectStore = defineStore('project', () => {
   const openPageIds = ref<string[]>([]);
   const viewMode = ref<'editor' | 'graph'>('editor');
 
+  const serverStatus = ref<'online' | 'offline' | 'checking'>('checking');
+  const saveStatus = ref<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
   // Initialize
   async function init() {
-    const loaded = await storage.loadProjects();
-    if (loaded.length > 0) {
+    try {
+      const loaded = await storage.loadProjects();
+      // Check environment
+      // @ts-ignore
+      if (window.__TAURI__) {
+        serverStatus.value = 'online';
+      } else {
+        try {
+          await fetch('http://localhost:3001/api/projects');
+          serverStatus.value = 'online';
+        } catch {
+          serverStatus.value = 'offline';
+        }
+      }
+
+      if (loaded.length > 0) {
       // Migration: Convert old array-based pages to new structure if needed
       projects.value = loaded.map(p => {
         if (Array.isArray(p.pages)) {
@@ -45,28 +62,36 @@ export const useProjectStore = defineStore('project', () => {
       // Default project
       createProject('My Unreal Project');
     }
+  } catch (e) {
+    console.error('Failed to initialize project store', e);
+    serverStatus.value = 'offline';
+    // Ensure we have a project to work with even if storage failed
+    if (projects.value.length === 0) {
+      createProject('My Unreal Project');
+    }
+  }
   }
 
-  // Call init immediately
-  init();
-
-  async function useFileSystem(handle: any) {
-      const { FileSystemStorage } = await import('../services/storage/FileSystemStorage');
-      const fsStorage = new FileSystemStorage(handle);
-      // @ts-ignore
-      storage.setAdapter(fsStorage);
-
-      // Reload
-      projects.value = [];
-      currentProjectId.value = null;
-      activePageId.value = null;
-      openPageIds.value = [];
-      await init();
-  }
+  // Call init immediately, but wait for next tick to ensure environment is ready
+  setTimeout(() => {
+    init();
+  }, 100);
 
   // Persist changes
-  watch([projects], () => {
-    storage.saveProjects(projects.value);
+  watch([projects], async () => {
+    if (serverStatus.value === 'offline') return;
+
+    saveStatus.value = 'saving';
+    try {
+      await storage.saveProjects(projects.value);
+      saveStatus.value = 'saved';
+      setTimeout(() => {
+        if (saveStatus.value === 'saved') saveStatus.value = 'idle';
+      }, 2000);
+    } catch (e) {
+      saveStatus.value = 'error';
+      serverStatus.value = 'offline'; // Assume offline if save fails
+    }
   }, { deep: true });
 
   const storedId = localStorage.getItem('codex-active-project');
@@ -359,6 +384,7 @@ export const useProjectStore = defineStore('project', () => {
     deleteNode,
     moveNode,
     importProject,
-    useFileSystem
+    serverStatus,
+    saveStatus
   };
 });
