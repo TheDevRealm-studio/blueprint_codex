@@ -287,21 +287,27 @@ export const useProjectStore = defineStore('project', () => {
   function deleteNode(id: string) {
     if (!project.value) return;
 
+    // Helper to recursively delete content
+    function deleteContentRecursively(node: FileSystemNode) {
+        if (node.type === 'page' && node.pageId && project.value) {
+            delete project.value.pages[node.pageId];
+            if (activePageId.value === node.pageId) activePageId.value = null;
+        }
+        if (node.children) {
+            node.children.forEach(deleteContentRecursively);
+        }
+    }
+
     // Helper to remove from tree
     function removeFromTree(nodes: FileSystemNode[]): boolean {
       const idx = nodes.findIndex(n => n.id === id);
       if (idx !== -1) {
         const node = nodes[idx];
         if (!node) return false;
-        // If page, remove content
-        if (node.type === 'page' && node.pageId && project.value) {
-          delete project.value.pages[node.pageId];
-          if (activePageId.value === node.pageId) activePageId.value = null;
-        }
-        // If folder, recursively delete content (optional, but good for cleanup)
-        if (node.type === 'folder' && node.children) {
-            // We could recursively delete pages here if we wanted to be strict about cleaning up project.pages
-        }
+        
+        // Recursively delete content
+        deleteContentRecursively(node);
+        
         nodes.splice(idx, 1);
         return true;
       }

@@ -169,6 +169,13 @@ function handleNewFolderInFolder() {
     openModal('createFolderInFolder', 'New Folder', 'Enter folder name', '', contextMenu.value.node.id);
 }
 
+function handleDropToRoot(e: DragEvent) {
+  const nodeId = e.dataTransfer?.getData('application/x-codex-node');
+  if (nodeId) {
+    store.moveNode(nodeId, null);
+  }
+}
+
 function exportProject() {
   if (!project.value) return;
   const data = JSON.stringify(project.value, null, 2);
@@ -307,7 +314,11 @@ function importProject() {
         </div>
 
         <!-- Tree View -->
-        <div class="flex-1 overflow-y-auto py-2 custom-scrollbar bg-cyber-dark/30">
+        <div 
+          class="flex-1 overflow-y-auto py-2 custom-scrollbar bg-cyber-dark/30"
+          @dragover.prevent
+          @drop="handleDropToRoot"
+        >
           <div v-if="!project || project.structure.length === 0" class="text-cyber-text/40 text-xs text-center mt-8 italic font-mono">
             // NO_CONTENT_FOUND
           </div>

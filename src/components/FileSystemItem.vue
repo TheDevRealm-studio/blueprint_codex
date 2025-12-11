@@ -39,11 +39,14 @@ function handleDragStart(e: DragEvent) {
 
 function handleDrop(e: DragEvent) {
   const nodeId = e.dataTransfer?.getData('application/x-codex-node');
-  if (nodeId && isFolder.value) {
-    e.stopPropagation(); // Prevent bubbling
-    store.moveNode(nodeId, props.node.id);
-    // Open folder on drop
-    if (!props.node.isOpen) store.toggleFolder(props.node.id);
+  if (nodeId) {
+    e.stopPropagation(); // Prevent bubbling to root handler
+    
+    if (isFolder.value) {
+        store.moveNode(nodeId, props.node.id);
+        // Open folder on drop
+        if (!props.node.isOpen) store.toggleFolder(props.node.id);
+    }
   }
 }
 
