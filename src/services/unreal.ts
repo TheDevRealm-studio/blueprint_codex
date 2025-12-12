@@ -7,6 +7,7 @@ export interface UnrealAsset {
   path: string; // Relative to Content folder e.g. /Game/Characters/MyChar
   asset_type: string; // e.g. 'Blueprint', 'Texture', 'Material'
   file_path: string;
+  fullPath?: string; // Computed full path
 }
 
 class UnrealService {

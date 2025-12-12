@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, watch } from 'vue';
+import { computed, ref } from 'vue';
 import { useProjectStore } from '../../stores/project';
 import { storage } from '../../services/storage';
 import { marked } from 'marked';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/atom-one-dark.css';
 import BlueprintVisualizer from '../BlueprintVisualizer.vue';
+import AIHelperView from '../AIHelperView.vue';
 import { 
   Bold, Italic, Heading1, Heading2, Heading3, Link, Network, 
   Eye, EyeOff, Copy 
@@ -105,9 +106,10 @@ function renderMarkdown(text: string) {
       return `<img src="${href}" alt="${text}" title="${title || ''}" class="max-w-full rounded border border-cyber-green/20" />`;
   };
 
-  renderer.html = (html) => {
+  renderer.html = ((html: any) => {
       // Intercept video tags to resolve src if it's an asset ID
-      return html.replace(/<video src="([^"]+)"/g, (match, src) => {
+      const htmlStr = typeof html === 'string' ? html : html?.text || '';
+      return htmlStr.replace(/<video src="([^"]+)"/g, (match: string, src: string) => {
           if (src && !src.startsWith('http') && !src.startsWith('blob:') && !src.startsWith('data:')) {
               const resolved = resolvedAssets.value[src];
               if (!resolved) {
@@ -118,7 +120,7 @@ function renderMarkdown(text: string) {
           }
           return match;
       });
-  };
+  }) as any;
 
   // Regex for [[Page Name]] or [[Page Name|Label]]
   const processed = text.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, p1, p2) => {
@@ -321,6 +323,7 @@ async function handleDroppedFiles(files: FileList, start: number, end: number, c
     
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
+        if (!file) continue;
         try {
             const asset = await storage.saveAsset(file);
             if (file.type.startsWith('image/')) {
@@ -350,6 +353,7 @@ async function handlePaste(e: ClipboardEvent) {
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
+    if (!item) continue;
     if (item.type.indexOf('image') !== -1 || item.type.indexOf('video') !== -1) {
       e.preventDefault();
       const file = item.getAsFile();
@@ -478,6 +482,14 @@ function triggerInsertLink() {
         </button>
         
         <div class="flex-1"></div>
+        
+        <!-- AI Helper Button -->
+        <AIHelperView 
+          v-if="page"
+          :content="page.markdownBody"
+          :context="page.title"
+          @apply="(text: string) => page && store.updatePage(page.id, { markdownBody: text })"
+        />
         
         <button
           @click="showPreview = !showPreview"

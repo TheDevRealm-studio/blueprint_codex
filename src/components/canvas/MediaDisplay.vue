@@ -11,7 +11,6 @@ const props = defineProps<{
 const resolvedUrl = ref<string>('');
 const loading = ref(false);
 const error = ref<string | null>(null);
-const assetName = ref<string>('');
 
 async function loadMedia() {
   if (!props.src) return;

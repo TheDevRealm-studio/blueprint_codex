@@ -4,6 +4,7 @@ import { NodeResizer } from '@vue-flow/node-resizer';
 import { computed, ref } from 'vue';
 import MediaDisplay from '../MediaDisplay.vue';
 import BlueprintVisualizer from '../../BlueprintVisualizer.vue';
+import NodeAIHelperView from '../../NodeAIHelperView.vue';
 import { useProjectStore } from '../../../stores/project';
 import { unrealService } from '../../../services/unreal';
 import type { Pin } from '../../../types';
@@ -323,6 +324,13 @@ function onResizeEnd(event: any) {
                 min="8"
                 max="120"
             />
+            <div class="flex-1"></div>
+            <NodeAIHelperView
+              class="nodrag"
+              :content="textContent"
+              nodeType="text block"
+              @apply="(text) => updateContent({ text, fontSize: textFontSize })"
+            />
         </div>
         <textarea
             :value="textContent"
@@ -335,6 +343,16 @@ function onResizeEnd(event: any) {
 
       <!-- Steps Block -->
       <div v-else-if="data.type === 'steps'" class="flex flex-col gap-2">
+        <div class="flex items-center gap-2 mb-2 pb-2 border-b border-gray-700">
+          <span class="text-[10px] text-gray-500 uppercase">Steps</span>
+          <div class="flex-1"></div>
+          <NodeAIHelperView
+            class="nodrag"
+            :content="data.content.join('\n')"
+            nodeType="step list"
+            @apply="(text: string) => updateContent(text.split('\n').filter((s: string) => s.trim()))"
+          />
+        </div>
         <div v-for="(step, i) in data.content" :key="i" class="flex gap-2 items-center">
           <span class="font-bold text-ue-accent select-none">{{ i + 1 }}.</span>
           <input

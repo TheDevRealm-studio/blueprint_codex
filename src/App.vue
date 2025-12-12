@@ -5,8 +5,25 @@ import CommandPalette from './components/CommandPalette.vue';
 import KnowledgeGraph from './components/views/KnowledgeGraph.vue';
 import { useProjectStore } from './stores/project';
 import { Code, Zap } from 'lucide-vue-next';
+import { onMounted } from 'vue';
+import { aiService } from './services/ai';
 
 const projectStore = useProjectStore();
+
+onMounted(() => {
+  // Initialize AI service from saved config
+  const savedConfig = localStorage.getItem('codex-ai-config');
+  if (savedConfig) {
+    try {
+      const config = JSON.parse(savedConfig);
+      if (config.apiKey) {
+        aiService.init(config.apiKey, config.model);
+      }
+    } catch (e) {
+      console.error('Failed to init AI service', e);
+    }
+  }
+});
 </script>
 
 <template>

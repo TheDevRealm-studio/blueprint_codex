@@ -11,7 +11,7 @@ export const useProjectStore = defineStore('project', () => {
   const currentProjectId = ref<string | null>(null);
   const activePageId = ref<string | null>(null);
   const openPageIds = ref<string[]>([]);
-  const viewMode = ref<'editor' | 'graph'>('editor');
+  const viewMode = ref<'editor' | 'graph' | 'project-graph'>('editor');
   const isCommandPaletteOpen = ref(false);
   const showKnowledgeGraph = ref(false);
 
@@ -252,7 +252,7 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
-  function setViewMode(mode: 'editor' | 'graph') {
+  function setViewMode(mode: 'editor' | 'graph' | 'project-graph') {
     viewMode.value = mode;
   }
 

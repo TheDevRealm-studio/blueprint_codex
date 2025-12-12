@@ -1,5 +1,5 @@
-import { writeTextFile, readTextFile, createDir, exists, writeBinaryFile, readBinaryFile, removeFile, readDir, BaseDirectory } from '@tauri-apps/api/fs';
-import { documentDir, join, sep } from '@tauri-apps/api/path';
+import { writeTextFile, readTextFile, createDir, exists, writeBinaryFile, readBinaryFile, removeFile, readDir } from '@tauri-apps/api/fs';
+import { documentDir, join } from '@tauri-apps/api/path';
 import type { StorageAdapter } from './types';
 import type { Project, Asset } from '../../types';
 
