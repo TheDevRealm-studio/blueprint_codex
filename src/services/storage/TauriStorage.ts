@@ -1,5 +1,5 @@
-import { writeTextFile, readTextFile, createDir, exists, writeBinaryFile, readBinaryFile, removeFile, readDir } from '@tauri-apps/api/fs';
-import { documentDir, join } from '@tauri-apps/api/path';
+import { writeTextFile, readTextFile, createDir, exists, writeBinaryFile, readBinaryFile, removeFile, readDir, BaseDirectory } from '@tauri-apps/api/fs';
+import { documentDir, join, sep } from '@tauri-apps/api/path';
 import type { StorageAdapter } from './types';
 import type { Project, Asset } from '../../types';
 
@@ -17,7 +17,7 @@ export class TauriStorage implements StorageAdapter {
     try {
       const docDir = await documentDir();
       const configPath = await join(docDir, DEFAULT_DIR_NAME, 'config.json');
-
+      
       if (await exists(configPath)) {
         const configStr = await readTextFile(configPath);
         const config = JSON.parse(configStr);
@@ -26,7 +26,7 @@ export class TauriStorage implements StorageAdapter {
           return this.rootPath!;
         }
       }
-
+      
       // Default path
       this.rootPath = await join(docDir, DEFAULT_DIR_NAME);
     } catch (e) {
@@ -44,10 +44,10 @@ export class TauriStorage implements StorageAdapter {
       if (!(await exists(configDir))) {
         await createDir(configDir, { recursive: true });
       }
-
+      
       const configPath = await join(configDir, 'config.json');
       await writeTextFile(configPath, JSON.stringify({ libraryPath: path }, null, 2));
-
+      
       this.rootPath = path;
       this.initialized = false; // Force re-init
       await this.init();
@@ -62,7 +62,7 @@ export class TauriStorage implements StorageAdapter {
 
     try {
       const root = await this.getLibraryPath();
-
+      
       if (!(await exists(root))) {
         await createDir(root, { recursive: true });
       }
@@ -84,7 +84,7 @@ export class TauriStorage implements StorageAdapter {
     try {
       const root = await this.getLibraryPath();
       const projectsPath = await join(root, 'projects.json');
-
+      
       if (!(await exists(projectsPath))) return [];
 
       const content = await readTextFile(projectsPath);
@@ -114,7 +114,7 @@ export class TauriStorage implements StorageAdapter {
     const ext = file.name.split('.').pop();
     const id = crypto.randomUUID();
     const filename = `${id}.${ext}`;
-
+    
     const assetsDir = await join(root, ASSETS_DIR_NAME);
     const filePath = await join(assetsDir, filename);
     const metaPath = await join(assetsDir, `${id}.json`);
@@ -143,7 +143,7 @@ export class TauriStorage implements StorageAdapter {
     try {
       const root = await this.getLibraryPath();
       const assetsDir = await join(root, ASSETS_DIR_NAME);
-
+      
       // Try to load metadata first to get filename
       let filename = assetId;
       try {
@@ -181,7 +181,7 @@ export class TauriStorage implements StorageAdapter {
     try {
       const root = await this.getLibraryPath();
       const assetsDir = await join(root, ASSETS_DIR_NAME);
-
+      
       // Try to load metadata first to get filename
       let filename = assetId;
       try {
@@ -209,9 +209,9 @@ export class TauriStorage implements StorageAdapter {
       const root = await this.getLibraryPath();
       const assetsPath = await join(root, ASSETS_DIR_NAME);
       const entries = await readDir(assetsPath);
-
+      
       const assets: Asset[] = [];
-
+      
       for (const entry of entries) {
         if (entry.name?.endsWith('.json')) {
             try {
@@ -235,7 +235,7 @@ export class TauriStorage implements StorageAdapter {
             });
         }
       }
-
+      
       return assets.sort((a, b) => b.createdAt - a.createdAt);
     } catch (e) {
       console.error('Failed to list assets', e);
@@ -248,7 +248,7 @@ export class TauriStorage implements StorageAdapter {
       const root = await this.getLibraryPath();
       const assetsDir = await join(root, ASSETS_DIR_NAME);
       const metaPath = await join(assetsDir, `${assetId}.json`);
-
+      
       if (await exists(metaPath)) {
           const content = await readTextFile(metaPath);
           const asset = JSON.parse(content) as Asset;

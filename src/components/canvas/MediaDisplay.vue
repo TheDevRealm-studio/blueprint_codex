@@ -11,6 +11,7 @@ const props = defineProps<{
 const resolvedUrl = ref<string>('');
 const loading = ref(false);
 const error = ref<string | null>(null);
+const assetName = ref<string>('');
 
 async function loadMedia() {
   if (!props.src) return;
@@ -34,7 +35,7 @@ async function loadMedia() {
     } else {
       error.value = 'File not found';
     }
-
+    
     // Try to load metadata for name if not provided
     if (!props.label) {
         // We can't easily get metadata here without a new storage method or just listing all.
@@ -68,7 +69,7 @@ onUnmounted(() => {
 
 <template>
   <div class="w-full h-full flex flex-col">
-    <div class="flex-1 relative overflow-hidden bg-[#1e1e1e] flex items-center justify-center checkerboard">
+    <div class="flex-1 relative overflow-hidden bg-black flex items-center justify-center">
       <div v-if="loading" class="text-gray-500 text-xs">Loading...</div>
       <div v-else-if="error" class="text-red-500 text-xs">{{ error }}</div>
 
@@ -78,8 +79,6 @@ onUnmounted(() => {
           :src="resolvedUrl"
           class="max-w-full max-h-full object-contain"
           draggable="false"
-          loading="lazy"
-          decoding="async"
         />
         <video
           v-else
@@ -96,15 +95,3 @@ onUnmounted(() => {
     </div>
   </div>
 </template>
-
-<style scoped>
-.checkerboard {
-  background-image:
-    linear-gradient(45deg, #252526 25%, transparent 25%),
-    linear-gradient(-45deg, #252526 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, #252526 75%),
-    linear-gradient(-45deg, transparent 75%, #252526 75%);
-  background-size: 20px 20px;
-  background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
-}
-</style>

@@ -1,16 +1,15 @@
 <script setup lang="ts">
 import { useProjectStore } from '../stores/project';
 import { storeToRefs } from 'pinia';
-import { computed, ref, onMounted } from 'vue';
+import { ref, onMounted } from 'vue';
 import FileSystemItem from './FileSystemItem.vue';
-import UnrealContentBrowser from './UnrealContentBrowser.vue';
 import InputModal from './InputModal.vue';
 import SettingsModal from './SettingsModal.vue';
 import type { FileSystemNode, Asset } from '../types';
 import { storage } from '../services/storage';
-import {
-  Settings, Search, Image, Video, File, FolderPlus, FilePlus,
-  RefreshCw, X, Download, Upload, Link, ChevronDown, Plus
+import { 
+  Settings, Search, Image, Video, File, FolderPlus, FilePlus, 
+  RefreshCw, X, Download, Upload, Link, ChevronDown, Plus 
 } from 'lucide-vue-next';
 
 const store = useProjectStore();
@@ -19,30 +18,12 @@ const showProjectSelect = ref(false);
 const showSettings = ref(false);
 
 // Tabs
-const activeTab = ref<'pages' | 'assets' | 'unreal'>('pages');
+const activeTab = ref<'pages' | 'assets'>('pages');
 const assets = ref<Asset[]>([]);
-const assetPreviews = ref<Record<string, string>>({});
-const assetSearchQuery = ref('');
-
-const filteredAssets = computed(() => {
-  if (!assetSearchQuery.value) return assets.value;
-  const query = assetSearchQuery.value.toLowerCase();
-  return assets.value.filter(a => a.name.toLowerCase().includes(query));
-});
 
 async function loadAssets() {
   try {
     assets.value = await storage.listAssets();
-    // Load previews for images
-    for (const asset of assets.value) {
-        if (asset.type.startsWith('image/') && !assetPreviews.value[asset.id]) {
-            storage.loadAsset(asset.id).then(blob => {
-                if (blob) {
-                    assetPreviews.value[asset.id] = URL.createObjectURL(blob);
-                }
-            });
-        }
-    }
   } catch (e) {
     console.error('Failed to load assets in sidebar', e);
   }
@@ -301,26 +282,19 @@ function importProject() {
 
     <!-- Tabs -->
     <div class="flex border-b border-cyber-green/20 bg-cyber-panel shrink-0">
-      <button
+      <button 
         @click="activeTab = 'pages'"
         class="flex-1 py-2 text-[10px] font-bold tracking-wider transition-colors border-b-2"
         :class="activeTab === 'pages' ? 'text-cyber-green border-cyber-green bg-cyber-green/5' : 'text-cyber-text/50 border-transparent hover:text-cyber-text hover:bg-cyber-green/5'"
       >
         PAGES
       </button>
-      <button
+      <button 
         @click="activeTab = 'assets'; loadAssets()"
         class="flex-1 py-2 text-[10px] font-bold tracking-wider transition-colors border-b-2"
         :class="activeTab === 'assets' ? 'text-cyber-green border-cyber-green bg-cyber-green/5' : 'text-cyber-text/50 border-transparent hover:text-cyber-text hover:bg-cyber-green/5'"
       >
         ASSETS
-      </button>
-      <button
-        @click="activeTab = 'unreal'"
-        class="flex-1 py-2 text-[10px] font-bold tracking-wider transition-colors border-b-2"
-        :class="activeTab === 'unreal' ? 'text-cyber-green border-cyber-green bg-cyber-green/5' : 'text-cyber-text/50 border-transparent hover:text-cyber-text hover:bg-cyber-green/5'"
-      >
-        UNREAL
       </button>
     </div>
 
@@ -340,7 +314,7 @@ function importProject() {
         </div>
 
         <!-- Tree View -->
-        <div
+        <div 
           class="flex-1 overflow-y-auto py-2 custom-scrollbar bg-cyber-dark/30"
           @dragover.prevent
           @drop="handleDropToRoot"
@@ -361,28 +335,16 @@ function importProject() {
     </template>
 
     <!-- Assets Tab Content -->
-    <template v-else-if="activeTab === 'assets'">
-        <div class="px-3 py-2 flex flex-col gap-2 bg-cyber-panel/50 border-b border-cyber-green/10 shrink-0">
-             <div class="flex justify-between items-center">
-                <span class="text-[10px] font-bold text-cyber-green/50 uppercase tracking-wider">UPLOADED FILES</span>
-                <button @click="loadAssets" class="text-cyber-text hover:text-cyber-green transition-colors p-1 rounded hover:bg-cyber-green/10" title="Refresh">
-                    <RefreshCw class="w-3.5 h-3.5" />
-                </button>
-             </div>
-             <!-- Asset Search -->
-             <div class="relative">
-                <Search class="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-cyber-text/50" />
-                <input
-                    v-model="assetSearchQuery"
-                    type="text"
-                    placeholder="Filter assets..."
-                    class="w-full bg-cyber-dark/50 border border-cyber-green/20 rounded pl-7 pr-2 py-1 text-[10px] text-cyber-text focus:outline-none focus:border-cyber-green/50 placeholder:text-cyber-text/30"
-                />
-             </div>
+    <template v-else>
+        <div class="px-3 py-2 flex justify-between items-center bg-cyber-panel/50 border-b border-cyber-green/10 shrink-0">
+             <span class="text-[10px] font-bold text-cyber-green/50 uppercase tracking-wider">UPLOADED FILES</span>
+             <button @click="loadAssets" class="text-cyber-text hover:text-cyber-green transition-colors p-1 rounded hover:bg-cyber-green/10" title="Refresh">
+                <RefreshCw class="w-3.5 h-3.5" />
+             </button>
         </div>
         <div class="flex-1 overflow-y-auto p-2 custom-scrollbar bg-cyber-dark/30 grid grid-cols-2 gap-2 content-start">
-            <div
-                v-for="asset in filteredAssets"
+            <div 
+                v-for="asset in assets" 
                 :key="asset.id"
                 class="aspect-square bg-cyber-dark border border-cyber-green/10 rounded p-1 relative group cursor-grab active:cursor-grabbing hover:border-cyber-green/50 transition-colors"
                 draggable="true"
@@ -392,17 +354,16 @@ function importProject() {
             >
                 <!-- Preview -->
                 <div class="w-full h-full flex items-center justify-center bg-black/20 rounded overflow-hidden flex-col">
-                    <div class="mb-1 text-cyber-text/50 flex items-center justify-center w-full h-full">
-                        <img v-if="assetPreviews[asset.id]" :src="assetPreviews[asset.id]" class="max-w-full max-h-full object-contain" />
-                        <Image v-else-if="asset.type.startsWith('image')" class="w-8 h-8" />
+                    <div class="mb-1 text-cyber-text/50">
+                        <Image v-if="asset.type.startsWith('image')" class="w-8 h-8" />
                         <Video v-else-if="asset.type.startsWith('video')" class="w-8 h-8" />
                         <File v-else class="w-8 h-8" />
                     </div>
-                    <span v-if="!assetPreviews[asset.id]" class="text-[10px] text-cyber-text/70 break-all text-center px-1 line-clamp-2">{{ asset.name }}</span>
+                    <span class="text-[10px] text-cyber-text/70 break-all text-center px-1 line-clamp-2">{{ asset.name }}</span>
                 </div>
-
+                
                 <!-- Delete Button -->
-                <button
+                <button 
                     @click.stop="deleteAsset(asset)"
                     class="absolute top-1 right-1 bg-red-900/80 text-red-200 rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-xs hover:bg-red-700"
                 >
@@ -413,11 +374,6 @@ function importProject() {
                 // NO_ASSETS
             </div>
         </div>
-    </template>
-
-    <!-- Unreal Tab Content -->
-    <template v-else-if="activeTab === 'unreal'">
-      <UnrealContentBrowser />
     </template>
 
     <!-- Context Menu -->
@@ -442,7 +398,7 @@ function importProject() {
       @close="modalState.show = false"
       @confirm="handleModalConfirm"
     />
-
+    
     <SettingsModal :show="showSettings" @close="showSettings = false" />
   </div>
 </template>

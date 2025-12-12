@@ -1,15 +1,14 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, onMounted, watch } from 'vue';
 import { useProjectStore } from '../../stores/project';
 import { storage } from '../../services/storage';
-import { unrealService } from '../../services/unreal';
 import { marked } from 'marked';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/atom-one-dark.css';
 import BlueprintVisualizer from '../BlueprintVisualizer.vue';
-import {
-  Bold, Italic, Heading1, Heading2, Heading3, Link, Network,
-  Eye, EyeOff, Copy
+import { 
+  Bold, Italic, Heading1, Heading2, Heading3, Link, Network, 
+  Eye, EyeOff, Copy 
 } from 'lucide-vue-next';
 
 const props = defineProps<{ pageId: string }>();
@@ -23,7 +22,7 @@ const resolvedAssets = ref<Record<string, string>>({});
 
 async function resolveAsset(assetId: string) {
     if (resolvedAssets.value[assetId]) return resolvedAssets.value[assetId];
-
+    
     try {
         const blob = await storage.loadAsset(assetId);
         if (blob) {
@@ -85,22 +84,22 @@ function renderMarkdown(text: string) {
           // It's likely an asset ID.
           // We return a placeholder that we can hydrate or just use the resolved URL if available.
           // Since render is synchronous, we can't await.
-          // We'll use a data attribute and let a watcher/observer handle it,
+          // We'll use a data attribute and let a watcher/observer handle it, 
           // OR check our reactive cache.
-
+          
           const resolved = resolvedAssets.value[href];
           if (!resolved) {
               // Trigger load
               resolveAsset(href);
               return `<div class="loading-asset" data-asset-id="${href}">Loading ${text}...</div>`;
           }
-
+          
           // Check if it's a video (we need metadata or guess from extension if available in ID, but ID is just UUID usually)
           // Actually, we stored the extension in the filename in storage, but here we just have ID.
           // We can try to guess from the resolved blob type if we had it, but we just have URL.
           // Let's assume image for standard markdown image syntax, unless we use a custom syntax for video.
           // OR, we can check the blob type in resolveAsset and store it.
-
+          
           return `<img src="${resolved}" alt="${text}" title="${title || ''}" class="max-w-full rounded border border-cyber-green/20" />`;
       }
       return `<img src="${href}" alt="${text}" title="${title || ''}" class="max-w-full rounded border border-cyber-green/20" />`;
@@ -108,7 +107,7 @@ function renderMarkdown(text: string) {
 
   renderer.html = (html) => {
       // Intercept video tags to resolve src if it's an asset ID
-      return String(html).replace(/<video src="([^"]+)"/g, (match: string, src: string) => {
+      return html.replace(/<video src="([^"]+)"/g, (match, src) => {
           if (src && !src.startsWith('http') && !src.startsWith('blob:') && !src.startsWith('data:')) {
               const resolved = resolvedAssets.value[src];
               if (!resolved) {
@@ -122,23 +121,7 @@ function renderMarkdown(text: string) {
   };
 
   // Regex for [[Page Name]] or [[Page Name|Label]]
-  const processed = text
-    // Handle Unreal Assets: [[Type'Path.Name']]
-    .replace(/\[\[(\w+'[^']+')\]\]/g, (_, ref) => {
-        const match = ref.match(/^(\w+)'(.*)\.([^']+)'$/);
-        if (match) {
-            const type = match[1];
-            const name = match[3];
-            // Simple inline badge style
-            return `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-800 border border-gray-700 text-xs font-mono text-gray-300 select-none cursor-help" title="${ref}">
-                <span class="text-ue-accent font-bold">${type}</span>
-                <span>${name}</span>
-            </span>`;
-        }
-        return ref;
-    })
-    // Handle Pages
-    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, p1, p2) => {
+  const processed = text.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, p1, p2) => {
     const pageName = p1.trim();
     const label = p2 ? p2.trim() : pageName;
     // Find the page ID if it exists
@@ -185,22 +168,12 @@ const autocompleteIndex = ref(0);
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 const autocompletePos = ref({ top: 0, left: 0 });
 
-const filteredItems = computed(() => {
+const filteredPages = computed(() => {
+  if (!store.project) return [];
   const query = autocompleteQuery.value.toLowerCase();
-  const items: { type: 'page' | 'asset', title: string, id?: string, data?: any }[] = [];
-
-  // 1. Pages
-  if (store.project) {
-    Object.values(store.project.pages)
-      .filter(p => p.title.toLowerCase().includes(query) && p.id !== page.value?.id)
-      .forEach(p => items.push({ type: 'page', title: p.title, id: p.id }));
-  }
-
-  // 2. Unreal Assets
-  const assets = unrealService.search(query);
-  assets.forEach(a => items.push({ type: 'asset', title: a.name, data: a }));
-
-  return items.slice(0, 10);
+  return Object.values(store.project.pages)
+    .filter(p => p.title.toLowerCase().includes(query) && p.id !== page.value?.id)
+    .slice(0, 5);
 });
 
 function handleInput(e: Event) {
@@ -238,23 +211,8 @@ function updateAutocompletePos(textarea: HTMLTextAreaElement) {
   autocompletePos.value = { top: offsetTop + 20, left: offsetLeft + 20 };
 }
 
-function selectAutocomplete(item: { type: 'page' | 'asset', title: string, data?: any }) {
+function selectAutocomplete(pageTitle: string) {
   if (!textareaRef.value || !page.value) return;
-
-  let insertionText = '';
-
-  if (item.type === 'asset' && item.data) {
-      const ref = `${item.data.asset_type}'${item.data.path}.${item.data.name}'`;
-      insertionText = `[[${ref}]]`;
-  } else {
-      // Page Logic
-      const pageTitle = item.title;
-      const existingPage = Object.values(store.project?.pages || {}).find(p => p.title === item.title);
-      if (!existingPage) {
-          store.addPage(item.title);
-      }
-      insertionText = `[[${pageTitle}]]`;
-  }
 
   const textarea = textareaRef.value;
   const cursor = textarea.selectionStart;
@@ -262,13 +220,13 @@ function selectAutocomplete(item: { type: 'page' | 'asset', title: string, data?
   const lastOpen = text.lastIndexOf('[[', cursor);
 
   if (lastOpen !== -1) {
-    const newText = text.slice(0, lastOpen) + insertionText + text.slice(cursor);
+    const newText = text.slice(0, lastOpen) + `[[${pageTitle}]]` + text.slice(cursor);
     store.updatePage(page.value.id, { markdownBody: newText });
     showAutocomplete.value = false;
 
     setTimeout(() => {
       textarea.focus();
-      const newCursor = lastOpen + insertionText.length;
+      const newCursor = lastOpen + pageTitle.length + 4;
       textarea.setSelectionRange(newCursor, newCursor);
     }, 0);
   }
@@ -279,15 +237,15 @@ function handleKeydown(e: KeyboardEvent) {
 
   if (e.key === 'ArrowDown') {
     e.preventDefault();
-    autocompleteIndex.value = (autocompleteIndex.value + 1) % filteredItems.value.length;
+    autocompleteIndex.value = (autocompleteIndex.value + 1) % filteredPages.value.length;
   } else if (e.key === 'ArrowUp') {
     e.preventDefault();
-    autocompleteIndex.value = (autocompleteIndex.value - 1 + filteredItems.value.length) % filteredItems.value.length;
+    autocompleteIndex.value = (autocompleteIndex.value - 1 + filteredPages.value.length) % filteredPages.value.length;
   } else if (e.key === 'Enter') {
     e.preventDefault();
-    const selectedItem = filteredItems.value[autocompleteIndex.value];
-    if (selectedItem) {
-      selectAutocomplete(selectedItem);
+    const selectedPage = filteredPages.value[autocompleteIndex.value];
+    if (selectedPage) {
+      selectAutocomplete(selectedPage.title);
     }
   } else if (e.key === 'Escape') {
     showAutocomplete.value = false;
@@ -333,7 +291,7 @@ function handleDrop(e: DragEvent) {
       const linkText = `[[${targetPage.title}]]`;
       const newText = text.substring(0, start) + linkText + text.substring(end);
       store.updatePage(page.value!.id, { markdownBody: newText });
-
+      
       setTimeout(() => {
           textarea.focus();
           textarea.setSelectionRange(start + linkText.length, start + linkText.length);
@@ -351,22 +309,6 @@ function handleDrop(e: DragEvent) {
       return;
   }
 
-  // 2.5 Handle Unreal Assets
-  const unrealAssetData = e.dataTransfer?.getData('application/x-codex-asset-data');
-  if (unrealAssetData) {
-      const asset = JSON.parse(unrealAssetData);
-      const ref = `${asset.asset_type}'${asset.path}.${asset.name}'`;
-      const linkText = `[[${ref}]]`;
-      const newText = text.substring(0, start) + linkText + text.substring(end);
-      store.updatePage(page.value!.id, { markdownBody: newText });
-
-      setTimeout(() => {
-          textarea.focus();
-          textarea.setSelectionRange(start + linkText.length, start + linkText.length);
-      }, 0);
-      return;
-  }
-
   // 3. Handle External Files
   const files = e.dataTransfer?.files;
   if (files && files.length > 0) {
@@ -376,10 +318,9 @@ function handleDrop(e: DragEvent) {
 
 async function handleDroppedFiles(files: FileList, start: number, end: number, currentText: string) {
     let insertion = '';
-
+    
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        if (!file) continue;
         try {
             const asset = await storage.saveAsset(file);
             if (file.type.startsWith('image/')) {
@@ -409,7 +350,6 @@ async function handlePaste(e: ClipboardEvent) {
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
-    if (!item) continue;
     if (item.type.indexOf('image') !== -1 || item.type.indexOf('video') !== -1) {
       e.preventDefault();
       const file = item.getAsFile();
@@ -421,14 +361,14 @@ async function handlePaste(e: ClipboardEvent) {
                 const start = textarea.selectionStart;
                 const end = textarea.selectionEnd;
                 const text = textarea.value;
-
+                
                 let insertion = '';
                 if (file.type.startsWith('image/')) {
                     insertion = `![${file.name}](${asset.id})`;
                 } else if (file.type.startsWith('video/')) {
                     insertion = `<video src="${asset.id}" controls class="w-full max-h-96"></video>`;
                 }
-
+                
                 const newText = text.substring(0, start) + insertion + text.substring(end);
                 store.updatePage(page.value.id, { markdownBody: newText });
             }
@@ -498,16 +438,15 @@ function triggerInsertLink() {
     </div>
 
     <!-- Autocomplete Popup -->
-    <div v-if="showAutocomplete && filteredItems.length > 0"
+    <div v-if="showAutocomplete && filteredPages.length > 0"
          class="absolute z-50 bg-cyber-panel border border-cyber-green/30 shadow-[0_0_20px_rgba(0,0,0,0.5)] rounded w-64 overflow-hidden"
          :style="{ top: '40px', left: '20px' }"> <!-- Fixed position for stability -->
-      <div v-for="(item, i) in filteredItems"
-           :key="i"
-           class="px-3 py-2 text-sm cursor-pointer hover:bg-cyber-green/10 border-l-2 border-transparent flex items-center justify-between"
+      <div v-for="(p, i) in filteredPages"
+           :key="p.id"
+           class="px-3 py-2 text-sm cursor-pointer hover:bg-cyber-green/10 border-l-2 border-transparent"
            :class="{ 'bg-cyber-green/5 text-cyber-green border-cyber-green': i === autocompleteIndex, 'text-cyber-text': i !== autocompleteIndex }"
-           @click="selectAutocomplete(item)">
-        <span>{{ item.title }}</span>
-        <span v-if="item.type === 'asset'" class="text-[10px] opacity-50 uppercase border border-current px-1 rounded">Asset</span>
+           @click="selectAutocomplete(p.title)">
+        {{ p.title }}
       </div>
     </div>
 
@@ -537,9 +476,9 @@ function triggerInsertLink() {
         <button @click="insertText('```blueprint\n', '\n```')" class="p-1.5 rounded hover:bg-cyber-green/10 text-cyber-text hover:text-cyber-green transition-colors" title="Code Block">
             <Network class="w-3.5 h-3.5" />
         </button>
-
+        
         <div class="flex-1"></div>
-
+        
         <button
           @click="showPreview = !showPreview"
           class="text-xs text-cyber-purple hover:text-cyber-green font-mono transition-colors px-2 flex items-center gap-1"
