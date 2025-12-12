@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Wand2, X, Copy, Loader } from 'lucide-vue-next'
+import { 
+  Wand2, X, Copy, Loader, 
+  ListCollapse, Sparkles, Expand, Minimize2, SpellCheck, List,
+  Cpu, Code2, ShieldAlert 
+} from 'lucide-vue-next'
 import { useAI } from '@/services/ai'
 
 const aiService = useAI()
@@ -20,12 +24,16 @@ interface AIAction {
 }
 
 const actions: AIAction[] = [
-  { id: 'summarize', label: 'Summarize', icon: 'list-collapse', description: 'Create a concise summary' },
-  { id: 'improve', label: 'Improve', icon: 'sparkles', description: 'Enhance clarity and quality' },
-  { id: 'expand', label: 'Expand', icon: 'expand', description: 'Add more details' },
-  { id: 'simplify', label: 'Simplify', icon: 'simplify', description: 'Make it easier to understand' },
-  { id: 'grammar', label: 'Grammar', icon: 'spell-check', description: 'Fix grammar and spelling' },
-  { id: 'bullets', label: 'Bullets', icon: 'list', description: 'Convert to bullet points' },
+  { id: 'summarize', label: 'Summarize', icon: ListCollapse, description: 'Create a concise summary' },
+  { id: 'improve', label: 'Improve', icon: Sparkles, description: 'Enhance clarity and quality' },
+  { id: 'expand', label: 'Expand', icon: Expand, description: 'Add more details' },
+  { id: 'simplify', label: 'Simplify', icon: Minimize2, description: 'Make it easier to understand' },
+  { id: 'grammar', label: 'Grammar', icon: SpellCheck, description: 'Fix grammar and spelling' },
+  { id: 'bullets', label: 'Bullets', icon: List, description: 'Convert to bullet points' },
+  { id: 'beautify', label: 'Beautify', icon: Sparkles, description: '✨ Add emojis & pretty markdown' },
+  { id: 'blueprint', label: 'Explain BP', icon: Cpu, description: 'Decode Blueprint logic' },
+  { id: 'cpp', label: 'Gen C++', icon: Code2, description: 'Create UE5 C++ class' },
+  { id: 'audit', label: 'Audit Names', icon: ShieldAlert, description: 'Check naming conventions' },
 ]
 
 const props = defineProps<{
@@ -60,6 +68,10 @@ const executeAction = async (actionId: string) => {
       simplify: () => aiService.simplify(props.content),
       grammar: () => aiService.fixGrammar(props.content),
       bullets: () => aiService.generateBulletPoints(props.content),
+      beautify: () => aiService.beautifyMarkdown(props.content),
+      blueprint: () => aiService.explainBlueprint(props.content),
+      cpp: () => aiService.generateCppClass(props.content),
+      audit: () => aiService.auditNamingConventions(props.content),
     }
 
     const response = await actionMap[actionId]?.()
@@ -145,7 +157,9 @@ const copyResult = () => {
                 :disabled="isLoading"
                 class="p-3 rounded border border-cyber-green/20 hover:border-cyber-green/50 hover:bg-cyber-green/5 transition-all text-left disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <div class="text-lg mb-1">{{ action.icon }}</div>
+                <div class="text-lg mb-1">
+                  <component :is="action.icon" class="w-5 h-5 text-cyber-green" />
+                </div>
                 <div class="text-xs font-bold text-cyber-green">{{ action.label }}</div>
                 <div class="text-[10px] text-cyber-text/50 mt-1">{{ action.description }}</div>
               </button>

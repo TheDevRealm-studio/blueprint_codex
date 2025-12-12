@@ -23,6 +23,8 @@ const actions: AIAction[] = [
   { id: 'summarize', label: 'Summarize', description: 'Concise summary' },
   { id: 'improve', label: 'Improve', description: 'Enhance quality' },
   { id: 'expand', label: 'Expand', description: 'Add details' },
+  { id: 'beautify', label: 'Beautify', description: '✨ Emojis & markdown' },
+  { id: 'blueprint', label: 'Explain BP', description: 'Decode Blueprint logic' },
   { id: 'custom', label: 'Custom Prompt', description: 'Write your own' },
 ]
 
@@ -64,6 +66,8 @@ const executeAction = async (actionId: string) => {
         summarize: () => aiService.summarize(props.content),
         improve: () => aiService.improve(props.content),
         expand: () => aiService.expand(props.content),
+        beautify: () => aiService.beautifyMarkdown(props.content),
+        blueprint: () => aiService.explainBlueprint(props.content),
       }
       result.value = await actionMap[actionId]?.() || ''
     }

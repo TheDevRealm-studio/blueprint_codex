@@ -197,6 +197,61 @@ class AIService {
     return response.text;
   }
 
+  async beautifyMarkdown(text: string): Promise<string> {
+    const response = await this.customRequest(
+      `Transform the following text into beautiful, easy-to-read markdown with lots of relevant emojis. Use:
+- Emojis for headers and sections (📝 ✨ 🎯 💡 ⚡ 🚀 etc.)
+- Proper markdown formatting (headers, bold, italic, lists)
+- Code blocks where appropriate
+- Clear visual hierarchy
+- Engaging emojis that match the content context
+- Make it fun and visually appealing while keeping all important information
+
+Text to beautify:
+${text}`, 
+      1500
+    );
+    return response.text;
+  }
+
+  async explainBlueprint(text: string): Promise<string> {
+    const response = await this.customRequest(
+      `Analyze the following Unreal Engine Blueprint logic (or copied node text) and explain exactly what it does.
+Identify key events, variable changes, and potential performance issues (like Tick usage or expensive casts).
+
+Blueprint Logic:
+${text}`,
+      1500
+    );
+    return response.text;
+  }
+
+  async generateCppClass(description: string): Promise<string> {
+    const response = await this.customRequest(
+      `Generate a production-ready Unreal Engine 5 C++ class based on this description.
+Include both the .h (Header) and .cpp (Source) code.
+Use proper UCLASS, UPROPERTY, UFUNCTION macros.
+Follow Epic Games coding standards.
+
+Description: "${description}"`,
+      2000
+    );
+    return response.text;
+  }
+
+  async auditNamingConventions(text: string): Promise<string> {
+    const response = await this.customRequest(
+      `Audit the following list of Unreal Engine assets/files for naming convention violations.
+Use the standard prefix style (e.g., BP_ for Blueprints, T_ for Textures, M_ for Materials, SK_ for Skeletal Meshes).
+List any violations and suggest the corrected name.
+
+List to audit:
+${text}`,
+      1000
+    );
+    return response.text;
+  }
+
   async executeCustomPrompt(text: string, prompt: string): Promise<string> {
     const fullPrompt = `${prompt}\n\nText to process:\n${text}`;
     const response = await this.customRequest(fullPrompt, 1000);
