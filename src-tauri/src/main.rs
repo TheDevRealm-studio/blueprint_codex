@@ -47,17 +47,18 @@ fn scan_unreal_project(path: String) -> Result<Vec<UnrealAsset>, String> {
                     };
 
                     // Calculate relative path for UE reference (e.g. /Game/...)
-                    let relative_path = path.strip_prefix(&content_path).unwrap();
-                    let ue_path = format!("/Game/{}", relative_path.to_string_lossy().replace("\\", "/"));
-                    // Remove extension for UE path
-                    let ue_path_no_ext = ue_path.rsplit_once('.').map(|(a, _)| a).unwrap_or(&ue_path).to_string();
+                    if let Ok(relative_path) = path.strip_prefix(&content_path) {
+                        let ue_path = format!("/Game/{}", relative_path.to_string_lossy().replace("\\", "/"));
+                        // Remove extension for UE path
+                        let ue_path_no_ext = ue_path.rsplit_once('.').map(|(a, _)| a).unwrap_or(&ue_path).to_string();
 
-                    assets.push(UnrealAsset {
-                        name: file_name,
-                        path: ue_path_no_ext,
-                        file_path: path.to_string_lossy().to_string(),
-                        asset_type,
-                    });
+                        assets.push(UnrealAsset {
+                            name: file_name,
+                            path: ue_path_no_ext,
+                            file_path: path.to_string_lossy().to_string(),
+                            asset_type,
+                        });
+                    }
                 }
             }
         }

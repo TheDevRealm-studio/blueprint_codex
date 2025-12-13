@@ -4,14 +4,15 @@ import { NodeResizer } from '@vue-flow/node-resizer';
 import { computed, ref } from 'vue';
 import MediaDisplay from '../MediaDisplay.vue';
 import BlueprintVisualizer from '../../BlueprintVisualizer.vue';
-import NodeAIHelperView from '../../NodeAIHelperView.vue';
+import UnrealAssetCard from '../../UnrealAssetCard.vue';
 import { useProjectStore } from '../../../stores/project';
 import { unrealService } from '../../../services/unreal';
 import type { Pin } from '../../../types';
 import '@vue-flow/node-resizer/dist/style.css';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/atom-one-dark.css';
-import { Network, Image, ListOrdered, Link, Code, Package, Youtube, Globe, Type, X, Plus } from 'lucide-vue-next';
+import { marked } from 'marked';
+import { Network, Image, ListOrdered, Link, Code, Package, Youtube, Globe, Type, X, Plus, Edit2, Check, Bold, Italic, Heading1, Heading2, List } from 'lucide-vue-next';
 
 const props = defineProps<{
   id: string;
@@ -30,6 +31,8 @@ const props = defineProps<{
 
 const store = useProjectStore();
 const isEditingCode = ref(false);
+const isEditingText = ref(false);
+const textareaRef = ref<HTMLTextAreaElement | null>(null);
 const assetSearchQuery = ref('');
 const showAssetResults = ref(false);
 
@@ -99,6 +102,48 @@ const textFontSize = computed(() => {
   if (typeof props.data.content === 'string') return 14;
   return props.data.content.fontSize || 14;
 });
+
+const renderedMarkdown = computed(() => {
+  if (props.data.type !== 'text') return '';
+  // @ts-ignore
+  return marked.parse(textContent.value);
+});
+
+function insertMarkdown(prefix: string, suffix: string = '') {
+    if (!textareaRef.value) return;
+    const textarea = textareaRef.value;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = textarea.value;
+    const selectedText = text.substring(start, end);
+
+    const newText = text.substring(0, start) + prefix + selectedText + suffix + text.substring(end);
+    updateContent({ text: newText, fontSize: textFontSize.value });
+
+    setTimeout(() => {
+        textarea.focus();
+        textarea.setSelectionRange(start + prefix.length, end + prefix.length);
+    }, 0);
+}
+
+const parsedAsset = computed(() => {
+  if (props.data.type !== 'asset' || !props.data.content.reference) return null;
+  const ref = props.data.content.reference;
+  const match = ref.match(/^(\w+)'(.*)\.([^']+)'$/);
+  if (match) {
+    return {
+      asset_type: match[1],
+      path: match[2],
+      name: match[3]
+    };
+  }
+  return {
+    asset_type: 'Unknown',
+    path: ref,
+    name: 'Unknown Asset'
+  };
+});
+
 
 const extraInputs = computed(() => props.data.pins?.filter(p => p.type === 'target') || []);
 const extraOutputs = computed(() => props.data.pins?.filter(p => p.type === 'source') || []);
@@ -313,46 +358,76 @@ function onResizeEnd(event: any) {
     <div class="p-3 flex-1 overflow-auto text-sm text-gray-300 bg-ue-dark/50 nodrag cursor-text">
 
       <!-- Text Block -->
-      <div v-if="data.type === 'text'" class="h-full flex flex-col">
-        <div class="flex items-center gap-2 mb-1 border-b border-gray-700 pb-1 px-1">
-            <span class="text-[10px] text-gray-500 uppercase">Size</span>
-            <input
-                type="number"
-                :value="textFontSize"
-                @input="(e: Event) => updateContent({ text: textContent, fontSize: Number((e.target as HTMLInputElement).value) })"
-                class="w-12 bg-black/20 border border-gray-700 rounded px-1 text-xs text-gray-300 focus:outline-none"
-                min="8"
-                max="120"
-            />
-            <div class="flex-1"></div>
-            <NodeAIHelperView
-              class="nodrag"
-              :content="textContent"
-              nodeType="text block"
-              @apply="(text) => updateContent({ text, fontSize: textFontSize })"
-            />
+      <div v-if="data.type === 'text'" class="h-full flex flex-col relative group/text">
+        <!-- View Mode -->
+        <div
+            v-if="!isEditingText"
+            @dblclick="isEditingText = true"
+            class="w-full h-full prose prose-invert prose-sm max-w-none overflow-auto custom-scrollbar p-1"
+            :style="{ fontSize: `${textFontSize}px` }"
+            v-html="renderedMarkdown"
+        ></div>
+
+        <!-- Edit Button (Visible on Hover) -->
+        <button
+            v-if="!isEditingText"
+            @click="isEditingText = true"
+            class="absolute top-0 right-0 p-1 bg-black/50 rounded text-gray-400 hover:text-white opacity-0 group-hover/text:opacity-100 transition-opacity"
+        >
+            <Edit2 class="w-3 h-3" />
+        </button>
+
+        <!-- Edit Mode -->
+        <div v-else class="h-full flex flex-col">
+            <div class="flex items-center justify-between gap-2 mb-1 border-b border-gray-700 pb-1 px-1 bg-black/20">
+                <!-- Toolbar -->
+                <div class="flex items-center gap-1">
+                    <button @click="insertMarkdown('**', '**')" class="p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white" title="Bold">
+                        <Bold class="w-3 h-3" />
+                    </button>
+                    <button @click="insertMarkdown('*', '*')" class="p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white" title="Italic">
+                        <Italic class="w-3 h-3" />
+                    </button>
+                    <button @click="insertMarkdown('# ')" class="p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white" title="Heading 1">
+                        <Heading1 class="w-3 h-3" />
+                    </button>
+                    <button @click="insertMarkdown('## ')" class="p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white" title="Heading 2">
+                        <Heading2 class="w-3 h-3" />
+                    </button>
+                    <button @click="insertMarkdown('- ')" class="p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white" title="List">
+                        <List class="w-3 h-3" />
+                    </button>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <input
+                        type="number"
+                        :value="textFontSize"
+                        @input="(e: Event) => updateContent({ text: textContent, fontSize: Number((e.target as HTMLInputElement).value) })"
+                        class="w-10 bg-black/20 border border-gray-700 rounded px-1 text-xs text-gray-300 focus:outline-none text-center"
+                        min="8"
+                        max="120"
+                        title="Font Size"
+                    />
+                    <button @click="isEditingText = false" class="text-green-500 hover:text-green-400 bg-green-500/10 p-1 rounded" title="Done">
+                        <Check class="w-3 h-3" />
+                    </button>
+                </div>
+            </div>
+            <textarea
+                ref="textareaRef"
+                :value="textContent"
+                @input="(e: Event) => updateContent({ text: (e.target as HTMLTextAreaElement).value, fontSize: textFontSize })"
+                class="w-full flex-1 bg-black/20 border border-gray-700 rounded p-2 resize-none focus:outline-none text-gray-300 font-mono text-xs"
+                :style="{ fontSize: `${textFontSize}px`, lineHeight: '1.4' }"
+                placeholder="Type Markdown here..."
+                @keydown.esc="isEditingText = false"
+            ></textarea>
         </div>
-        <textarea
-            :value="textContent"
-            @input="(e: Event) => updateContent({ text: (e.target as HTMLTextAreaElement).value, fontSize: textFontSize })"
-            class="w-full flex-1 bg-transparent border-none resize-none focus:outline-none text-gray-300 min-h-[100px]"
-            :style="{ fontSize: `${textFontSize}px`, lineHeight: '1.4' }"
-            placeholder="Type here..."
-        ></textarea>
       </div>
 
       <!-- Steps Block -->
       <div v-else-if="data.type === 'steps'" class="flex flex-col gap-2">
-        <div class="flex items-center gap-2 mb-2 pb-2 border-b border-gray-700">
-          <span class="text-[10px] text-gray-500 uppercase">Steps</span>
-          <div class="flex-1"></div>
-          <NodeAIHelperView
-            class="nodrag"
-            :content="data.content.join('\n')"
-            nodeType="step list"
-            @apply="(text: string) => updateContent(text.split('\n').filter((s: string) => s.trim()))"
-          />
-        </div>
         <div v-for="(step, i) in data.content" :key="i" class="flex gap-2 items-center">
           <span class="font-bold text-ue-accent select-none">{{ i + 1 }}.</span>
           <input
@@ -439,6 +514,12 @@ function onResizeEnd(event: any) {
             <div v-if="data.content.description" class="text-[10px] text-gray-400 line-clamp-2 leading-tight">{{ data.content.description }}</div>
             <div class="text-[9px] text-ue-accent truncate opacity-70">{{ data.content.url }}</div>
         </div>
+      </div>
+
+      <!-- Asset Block -->
+      <div v-else-if="data.type === 'asset'" class="flex flex-col gap-2">
+        <UnrealAssetCard v-if="parsedAsset" :asset="parsedAsset" />
+        <div v-else class="text-red-500 text-xs">Invalid Asset Reference</div>
       </div>
 
       <!-- Blueprint Block -->
@@ -544,9 +625,10 @@ function onResizeEnd(event: any) {
 
             <!-- Autocomplete Results -->
             <div v-if="showAssetResults && assetSearchResults.length > 0" class="absolute top-full left-0 w-full bg-ue-panel border border-gray-700 shadow-xl z-50 max-h-40 overflow-y-auto mt-1 rounded">
+              <!-- Fixed key usage -->
               <div
                 v-for="asset in assetSearchResults"
-                :key="asset.fullPath"
+                :key="asset.path"
                 @mousedown="selectAsset(asset)"
                 class="px-2 py-1 hover:bg-ue-accent hover:text-white cursor-pointer text-xs flex flex-col border-b border-gray-800 last:border-0"
               >

@@ -2,14 +2,14 @@
 import { computed, ref } from 'vue';
 import { useProjectStore } from '../../stores/project';
 import { storage } from '../../services/storage';
+import { unrealService } from '../../services/unreal';
 import { marked } from 'marked';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/atom-one-dark.css';
 import BlueprintVisualizer from '../BlueprintVisualizer.vue';
-import AIHelperView from '../AIHelperView.vue';
-import { 
-  Bold, Italic, Heading1, Heading2, Heading3, Link, Network, 
-  Eye, EyeOff, Copy 
+import {
+  Bold, Italic, Heading1, Heading2, Heading3, Link, Network,
+  Eye, EyeOff, Copy
 } from 'lucide-vue-next';
 
 const props = defineProps<{ pageId: string }>();
@@ -23,7 +23,7 @@ const resolvedAssets = ref<Record<string, string>>({});
 
 async function resolveAsset(assetId: string) {
     if (resolvedAssets.value[assetId]) return resolvedAssets.value[assetId];
-    
+
     try {
         const blob = await storage.loadAsset(assetId);
         if (blob) {
@@ -85,31 +85,30 @@ function renderMarkdown(text: string) {
           // It's likely an asset ID.
           // We return a placeholder that we can hydrate or just use the resolved URL if available.
           // Since render is synchronous, we can't await.
-          // We'll use a data attribute and let a watcher/observer handle it, 
+          // We'll use a data attribute and let a watcher/observer handle it,
           // OR check our reactive cache.
-          
+
           const resolved = resolvedAssets.value[href];
           if (!resolved) {
               // Trigger load
               resolveAsset(href);
               return `<div class="loading-asset" data-asset-id="${href}">Loading ${text}...</div>`;
           }
-          
+
           // Check if it's a video (we need metadata or guess from extension if available in ID, but ID is just UUID usually)
           // Actually, we stored the extension in the filename in storage, but here we just have ID.
           // We can try to guess from the resolved blob type if we had it, but we just have URL.
           // Let's assume image for standard markdown image syntax, unless we use a custom syntax for video.
           // OR, we can check the blob type in resolveAsset and store it.
-          
+
           return `<img src="${resolved}" alt="${text}" title="${title || ''}" class="max-w-full rounded border border-cyber-green/20" />`;
       }
       return `<img src="${href}" alt="${text}" title="${title || ''}" class="max-w-full rounded border border-cyber-green/20" />`;
   };
 
-  renderer.html = ((html: any) => {
+  renderer.html = (html) => {
       // Intercept video tags to resolve src if it's an asset ID
-      const htmlStr = typeof html === 'string' ? html : html?.text || '';
-      return htmlStr.replace(/<video src="([^"]+)"/g, (match: string, src: string) => {
+      return String(html).replace(/<video src="([^"]+)"/g, (match: string, src: string) => {
           if (src && !src.startsWith('http') && !src.startsWith('blob:') && !src.startsWith('data:')) {
               const resolved = resolvedAssets.value[src];
               if (!resolved) {
@@ -120,10 +119,26 @@ function renderMarkdown(text: string) {
           }
           return match;
       });
-  }) as any;
+  };
 
   // Regex for [[Page Name]] or [[Page Name|Label]]
-  const processed = text.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, p1, p2) => {
+  const processed = text
+    // Handle Unreal Assets: [[Type'Path.Name']]
+    .replace(/\[\[(\w+'[^']+')\]\]/g, (_, ref) => {
+        const match = ref.match(/^(\w+)'(.*)\.([^']+)'$/);
+        if (match) {
+            const type = match[1];
+            const name = match[3];
+            // Simple inline badge style
+            return `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-800 border border-gray-700 text-xs font-mono text-gray-300 select-none cursor-help" title="${ref}">
+                <span class="text-ue-accent font-bold">${type}</span>
+                <span>${name}</span>
+            </span>`;
+        }
+        return ref;
+    })
+    // Handle Pages
+    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, p1, p2) => {
     const pageName = p1.trim();
     const label = p2 ? p2.trim() : pageName;
     // Find the page ID if it exists
@@ -170,12 +185,22 @@ const autocompleteIndex = ref(0);
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 const autocompletePos = ref({ top: 0, left: 0 });
 
-const filteredPages = computed(() => {
-  if (!store.project) return [];
+const filteredItems = computed(() => {
   const query = autocompleteQuery.value.toLowerCase();
-  return Object.values(store.project.pages)
-    .filter(p => p.title.toLowerCase().includes(query) && p.id !== page.value?.id)
-    .slice(0, 5);
+  const items: { type: 'page' | 'asset', title: string, id?: string, data?: any }[] = [];
+
+  // 1. Pages
+  if (store.project) {
+    Object.values(store.project.pages)
+      .filter(p => p.title.toLowerCase().includes(query) && p.id !== page.value?.id)
+      .forEach(p => items.push({ type: 'page', title: p.title, id: p.id }));
+  }
+
+  // 2. Unreal Assets
+  const assets = unrealService.search(query);
+  assets.forEach(a => items.push({ type: 'asset', title: a.name, data: a }));
+
+  return items.slice(0, 10);
 });
 
 function handleInput(e: Event) {
@@ -213,8 +238,23 @@ function updateAutocompletePos(textarea: HTMLTextAreaElement) {
   autocompletePos.value = { top: offsetTop + 20, left: offsetLeft + 20 };
 }
 
-function selectAutocomplete(pageTitle: string) {
+function selectAutocomplete(item: { type: 'page' | 'asset', title: string, data?: any }) {
   if (!textareaRef.value || !page.value) return;
+
+  let insertionText = '';
+
+  if (item.type === 'asset' && item.data) {
+      const ref = `${item.data.asset_type}'${item.data.path}.${item.data.name}'`;
+      insertionText = `[[${ref}]]`;
+  } else {
+      // Page Logic
+      const pageTitle = item.title;
+      const existingPage = Object.values(store.project?.pages || {}).find(p => p.title === item.title);
+      if (!existingPage) {
+          store.addPage(item.title);
+      }
+      insertionText = `[[${pageTitle}]]`;
+  }
 
   const textarea = textareaRef.value;
   const cursor = textarea.selectionStart;
@@ -222,13 +262,13 @@ function selectAutocomplete(pageTitle: string) {
   const lastOpen = text.lastIndexOf('[[', cursor);
 
   if (lastOpen !== -1) {
-    const newText = text.slice(0, lastOpen) + `[[${pageTitle}]]` + text.slice(cursor);
+    const newText = text.slice(0, lastOpen) + insertionText + text.slice(cursor);
     store.updatePage(page.value.id, { markdownBody: newText });
     showAutocomplete.value = false;
 
     setTimeout(() => {
       textarea.focus();
-      const newCursor = lastOpen + pageTitle.length + 4;
+      const newCursor = lastOpen + insertionText.length;
       textarea.setSelectionRange(newCursor, newCursor);
     }, 0);
   }
@@ -239,15 +279,15 @@ function handleKeydown(e: KeyboardEvent) {
 
   if (e.key === 'ArrowDown') {
     e.preventDefault();
-    autocompleteIndex.value = (autocompleteIndex.value + 1) % filteredPages.value.length;
+    autocompleteIndex.value = (autocompleteIndex.value + 1) % filteredItems.value.length;
   } else if (e.key === 'ArrowUp') {
     e.preventDefault();
-    autocompleteIndex.value = (autocompleteIndex.value - 1 + filteredPages.value.length) % filteredPages.value.length;
+    autocompleteIndex.value = (autocompleteIndex.value - 1 + filteredItems.value.length) % filteredItems.value.length;
   } else if (e.key === 'Enter') {
     e.preventDefault();
-    const selectedPage = filteredPages.value[autocompleteIndex.value];
-    if (selectedPage) {
-      selectAutocomplete(selectedPage.title);
+    const selectedItem = filteredItems.value[autocompleteIndex.value];
+    if (selectedItem) {
+      selectAutocomplete(selectedItem);
     }
   } else if (e.key === 'Escape') {
     showAutocomplete.value = false;
@@ -285,6 +325,9 @@ function handleDrop(e: DragEvent) {
   const end = textarea.selectionEnd;
   const text = textarea.value;
 
+  const unrealAssetRef = e.dataTransfer?.getData('application/x-codex-asset-ref') || '';
+  const plainText = e.dataTransfer?.getData('text/plain') || '';
+
   // 1. Handle Internal Page Links
   const pageId = e.dataTransfer?.getData('application/x-codex-page');
   if (pageId && store.project) {
@@ -293,7 +336,7 @@ function handleDrop(e: DragEvent) {
       const linkText = `[[${targetPage.title}]]`;
       const newText = text.substring(0, start) + linkText + text.substring(end);
       store.updatePage(page.value!.id, { markdownBody: newText });
-      
+
       setTimeout(() => {
           textarea.focus();
           textarea.setSelectionRange(start + linkText.length, start + linkText.length);
@@ -311,6 +354,43 @@ function handleDrop(e: DragEvent) {
       return;
   }
 
+  // 2.5 Handle Unreal Assets
+  const unrealAssetData = e.dataTransfer?.getData('application/x-codex-asset-data');
+  if (unrealAssetData) {
+      let asset: any | null = null;
+      try {
+        asset = JSON.parse(unrealAssetData);
+      } catch (err) {
+        console.warn('Failed to parse Unreal asset drag payload, falling back to asset-ref', err);
+      }
+
+      const ref = asset
+      ? `${asset.asset_type || 'Asset'}'${asset.path}.${asset.name}'`
+      : (unrealAssetRef ? `Asset'${unrealAssetRef}.${plainText || unrealAssetRef.split('/').pop() || 'Asset'}'` : '');
+
+      if (!ref) return;
+
+      const linkText = `[[${ref}]]`;
+      const newText = text.substring(0, start) + linkText + text.substring(end);
+      store.updatePage(page.value!.id, { markdownBody: newText });
+
+      setTimeout(() => {
+          textarea.focus();
+          textarea.setSelectionRange(start + linkText.length, start + linkText.length);
+      }, 0);
+      return;
+  }
+
+      // 2.6 Fallback: Unreal asset ref only
+      if (unrealAssetRef) {
+        const name = plainText || unrealAssetRef.split('/').pop() || 'Asset';
+        const ref = `Asset'${unrealAssetRef}.${name}'`;
+        const linkText = `[[${ref}]]`;
+        const newText = text.substring(0, start) + linkText + text.substring(end);
+        store.updatePage(page.value!.id, { markdownBody: newText });
+        return;
+      }
+
   // 3. Handle External Files
   const files = e.dataTransfer?.files;
   if (files && files.length > 0) {
@@ -318,9 +398,40 @@ function handleDrop(e: DragEvent) {
   }
 }
 
+function handleDropOnPreview(e: DragEvent) {
+  // Allow Unreal assets dropped onto preview pane to still insert into markdown.
+  e.preventDefault();
+  if (!page.value) return;
+
+  const unrealAssetData = e.dataTransfer?.getData('application/x-codex-asset-data');
+  const unrealAssetRef = e.dataTransfer?.getData('application/x-codex-asset-ref') || '';
+  const plainText = e.dataTransfer?.getData('text/plain') || '';
+
+  let ref = '';
+  if (unrealAssetData) {
+    try {
+      const asset = JSON.parse(unrealAssetData);
+      ref = `${asset.asset_type || 'Asset'}'${asset.path}.${asset.name}'`;
+    } catch (err) {
+      console.warn('Failed to parse Unreal asset drag payload on preview', err);
+    }
+  }
+
+  if (!ref && unrealAssetRef) {
+    const name = plainText || unrealAssetRef.split('/').pop() || 'Asset';
+    ref = `Asset'${unrealAssetRef}.${name}'`;
+  }
+
+  if (!ref) return;
+
+  // Insert at end when dropped on preview
+  const insertion = `\n[[${ref}]]\n`;
+  store.updatePage(page.value.id, { markdownBody: (page.value.markdownBody || '') + insertion });
+}
+
 async function handleDroppedFiles(files: FileList, start: number, end: number, currentText: string) {
     let insertion = '';
-    
+
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
         if (!file) continue;
@@ -365,14 +476,14 @@ async function handlePaste(e: ClipboardEvent) {
                 const start = textarea.selectionStart;
                 const end = textarea.selectionEnd;
                 const text = textarea.value;
-                
+
                 let insertion = '';
                 if (file.type.startsWith('image/')) {
                     insertion = `![${file.name}](${asset.id})`;
                 } else if (file.type.startsWith('video/')) {
                     insertion = `<video src="${asset.id}" controls class="w-full max-h-96"></video>`;
                 }
-                
+
                 const newText = text.substring(0, start) + insertion + text.substring(end);
                 store.updatePage(page.value.id, { markdownBody: newText });
             }
@@ -442,15 +553,16 @@ function triggerInsertLink() {
     </div>
 
     <!-- Autocomplete Popup -->
-    <div v-if="showAutocomplete && filteredPages.length > 0"
+    <div v-if="showAutocomplete && filteredItems.length > 0"
          class="absolute z-50 bg-cyber-panel border border-cyber-green/30 shadow-[0_0_20px_rgba(0,0,0,0.5)] rounded w-64 overflow-hidden"
          :style="{ top: '40px', left: '20px' }"> <!-- Fixed position for stability -->
-      <div v-for="(p, i) in filteredPages"
-           :key="p.id"
-           class="px-3 py-2 text-sm cursor-pointer hover:bg-cyber-green/10 border-l-2 border-transparent"
+      <div v-for="(item, i) in filteredItems"
+           :key="i"
+           class="px-3 py-2 text-sm cursor-pointer hover:bg-cyber-green/10 border-l-2 border-transparent flex items-center justify-between"
            :class="{ 'bg-cyber-green/5 text-cyber-green border-cyber-green': i === autocompleteIndex, 'text-cyber-text': i !== autocompleteIndex }"
-           @click="selectAutocomplete(p.title)">
-        {{ p.title }}
+           @click="selectAutocomplete(item)">
+        <span>{{ item.title }}</span>
+        <span v-if="item.type === 'asset'" class="text-[10px] opacity-50 uppercase border border-current px-1 rounded">Asset</span>
       </div>
     </div>
 
@@ -480,17 +592,9 @@ function triggerInsertLink() {
         <button @click="insertText('```blueprint\n', '\n```')" class="p-1.5 rounded hover:bg-cyber-green/10 text-cyber-text hover:text-cyber-green transition-colors" title="Code Block">
             <Network class="w-3.5 h-3.5" />
         </button>
-        
+
         <div class="flex-1"></div>
-        
-        <!-- AI Helper Button -->
-        <AIHelperView 
-          v-if="page"
-          :content="page.markdownBody"
-          :context="page.title"
-          @apply="(text: string) => page && store.updatePage(page.id, { markdownBody: text })"
-        />
-        
+
         <button
           @click="showPreview = !showPreview"
           class="text-xs text-cyber-purple hover:text-cyber-green font-mono transition-colors px-2 flex items-center gap-1"
@@ -513,7 +617,7 @@ function triggerInsertLink() {
         placeholder="Start typing... Use [[ to link pages, drag & drop images/videos."
       ></textarea>
     </div>
-    <div v-if="showPreview" class="w-1/2 h-full flex flex-col bg-cyber-dark/80 border-l border-cyber-green/20">
+    <div v-if="showPreview" class="w-1/2 h-full flex flex-col bg-cyber-dark/80 border-l border-cyber-green/20" @drop="handleDropOnPreview" @dragover.prevent>
       <div class="bg-cyber-panel px-4 py-2 flex items-center justify-between border-b border-cyber-green/20">
         <span class="text-xs text-cyber-green uppercase tracking-wider font-bold font-mono flex items-center gap-2">
           <span class="text-cyber-green">></span> PREVIEW_MODE

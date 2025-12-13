@@ -18,7 +18,11 @@ async function scanProject() {
 }
 
 function toggleGraph() {
-  store.viewMode = store.viewMode === 'project-graph' ? 'editor' : 'project-graph';
+  if (store.viewMode === 'project-graph') {
+      store.setViewMode('editor');
+  } else {
+      store.setViewMode('project-graph');
+  }
 }
 
 function clearSearch() {
@@ -89,7 +93,7 @@ function clearSearch() {
       <!-- Search Results -->
       <div v-else-if="searchQuery" class="flex flex-col">
           <div v-if="searchResults.length === 0" class="p-4 text-center text-gray-500 text-xs">
-              No assets found.
+              No assets found matching "{{ searchQuery }}".
           </div>
           <UnrealFileSystemItem
             v-for="asset in searchResults"
@@ -101,10 +105,15 @@ function clearSearch() {
       </div>
 
       <div v-else>
+        <div class="px-2 py-1 text-[10px] text-gray-600 flex justify-between">
+            <span>{{ assets.length }} assets</span>
+            <span class="truncate max-w-[150px]" :title="unrealService.getProjectPath() || ''">{{ unrealService.getProjectPath() }}</span>
+        </div>
         <UnrealFileSystemItem
           name="Content"
           :node="tree"
           :depth="0"
+          :initially-open="true"
         />
       </div>
     </div>

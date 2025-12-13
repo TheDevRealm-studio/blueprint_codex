@@ -8,10 +8,11 @@ const props = defineProps<{
   name: string;
   node: any; // The tree node
   depth: number;
+  initiallyOpen?: boolean;
 }>();
 
 const store = useProjectStore();
-const isOpen = ref(false);
+const isOpen = ref(props.initiallyOpen || false);
 const showContextMenu = ref(false);
 const contextMenuPos = ref({ x: 0, y: 0 });
 
@@ -44,7 +45,6 @@ function toggle() {
 }
 
 function handleContextMenu(e: MouseEvent) {
-    if (!isFolder.value) return;
     e.preventDefault();
     showContextMenu.value = true;
     contextMenuPos.value = { x: e.clientX, y: e.clientY };
@@ -58,7 +58,7 @@ function handleContextMenu(e: MouseEvent) {
 
 function openInGraph() {
     unrealService.setGraphRootPath(props.node.path);
-    store.setViewMode('graph');
+  store.setViewMode('graph');
 }
 
 function handleDragStart(e: DragEvent) {

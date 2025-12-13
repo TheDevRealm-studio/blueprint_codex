@@ -23,21 +23,105 @@ import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
 import * as d3 from 'd3';
 import { useProjectStore } from '../../stores/project';
 import { Maximize } from 'lucide-vue-next';
+import { unrealService } from '../../services/unreal';
 
 const store = useProjectStore();
 const svgRef = ref<SVGSVGElement | null>(null);
 const hoveredNode = ref<any>(null);
 const tooltipPos = ref({ x: 0, y: 0 });
 
+const unrealRootPath = computed(() => unrealService.getGraphRootPath().value);
+
+function matchesUnrealRoot(assetPath: string) {
+  const root = unrealRootPath.value;
+  if (!root) return true;
+  return assetPath === root || assetPath.startsWith(root + '/') || assetPath.startsWith(root);
+}
+
 // Graph data
 const nodes = computed(() => {
   if (!store.project) return [];
-  return Object.values(store.project.pages).map(page => ({
+  
+  const pageNodes = Object.values(store.project.pages).map(page => ({
     id: page.id,
     title: page.title,
+    type: 'page',
     group: page.category || 'General',
     connections: 0 // Will be calculated
   }));
+
+  const assetNodes = new Map<string, any>();
+  const pagesWithMatchingAssets = new Set<string>();
+  
+  Object.values(store.project.pages).forEach(page => {
+    // Scan Markdown
+    const assetRegex = /\[\[(\w+'[^']+')\]\]/g;
+    let match;
+    while ((match = assetRegex.exec(page.markdownBody || '')) !== null) {
+        const ref = match[1];
+        if (!ref) continue;
+        const matchParts = ref.match(/^(\w+)'(.*)\.([^']+)'$/);
+        if (matchParts) {
+            const type = matchParts[1];
+            const path = matchParts[2] || '';
+            const name = matchParts[3];
+            const id = `asset:${path}.${name}`; // Unique ID for asset node
+
+        if (!matchesUnrealRoot(path)) continue;
+
+            if (!assetNodes.has(id)) {
+                assetNodes.set(id, {
+                    id,
+                    title: name,
+                    type: 'asset',
+                    assetType: type,
+                    group: 'Asset',
+                    connections: 0
+                });
+            }
+
+        pagesWithMatchingAssets.add(page.id);
+        }
+    }
+
+    // Scan Canvas Blocks
+    if (page.blocks) {
+        page.blocks.forEach((block: any) => {
+            if (block.type === 'asset' && block.content?.reference) {
+                const ref = block.content.reference;
+                const matchParts = ref.match(/^(\w+)'(.*)\.([^']+)'$/);
+                if (matchParts) {
+                    const type = matchParts[1];
+                    const path = matchParts[2] || '';
+                    const name = matchParts[3];
+                    const id = `asset:${path}.${name}`;
+
+                if (!matchesUnrealRoot(path)) return;
+
+                    if (!assetNodes.has(id)) {
+                        assetNodes.set(id, {
+                            id,
+                            title: name,
+                            type: 'asset',
+                            assetType: type,
+                            group: 'Asset',
+                            connections: 0
+                        });
+                    }
+
+                pagesWithMatchingAssets.add(page.id);
+                }
+            }
+        });
+    }
+  });
+
+        // If scoping to a UE root, only show pages that connect to matching assets.
+        const filteredPageNodes = unrealRootPath.value
+        ? pageNodes.filter(p => pagesWithMatchingAssets.has(p.id))
+        : pageNodes;
+
+        return [...filteredPageNodes, ...Array.from(assetNodes.values())];
 });
 
 const links = computed(() => {
@@ -62,11 +146,44 @@ const links = computed(() => {
       const targetTitle = match[1];
       if (!targetTitle) continue;
 
+      // Check if it's an asset link first (skip if so)
+      if (targetTitle.match(/^\w+'[^']+\.[^']+'$/)) continue;
+
       // Find page by title (case insensitive)
       const targetPage = Object.values(pageMap).find(p => p.title.toLowerCase() === targetTitle.toLowerCase());
       if (targetPage && targetPage.id !== page.id) {
         result.push({ source: page.id, target: targetPage.id });
       }
+    }
+
+    // 3. Unreal Asset Links from Markdown [[Type'Path.Name']]
+    const assetRegex = /\[\[(\w+'[^']+')\]\]/g;
+    while ((match = assetRegex.exec(page.markdownBody || '')) !== null) {
+        const ref = match[1];
+        if (!ref) continue;
+        const matchParts = ref.match(/^(\w+)'(.*)\.([^']+)'$/);
+        if (matchParts) {
+            const path = matchParts[2] || '';
+            const name = matchParts[3];
+            const targetId = `asset:${path}.${name}`;
+        if (matchesUnrealRoot(path)) result.push({ source: page.id, target: targetId });
+        }
+    }
+
+    // 4. Unreal Asset Links from Canvas Blocks
+    if (page.blocks) {
+        page.blocks.forEach((block: any) => {
+            if (block.type === 'asset' && block.content?.reference) {
+                const ref = block.content.reference;
+                const matchParts = ref.match(/^(\w+)'(.*)\.([^']+)'$/);
+                if (matchParts) {
+                    const path = matchParts[2] || '';
+                    const name = matchParts[3];
+                    const targetId = `asset:${path}.${name}`;
+                if (matchesUnrealRoot(path)) result.push({ source: page.id, target: targetId });
+                }
+            }
+        });
     }
   });
 
@@ -181,8 +298,12 @@ function updateGraph() {
 
   // Node Circles
   node.append('circle')
-      .attr('r', (d: any) => 5 + Math.sqrt(d.connections) * 2)
+      .attr('r', (d: any) => {
+          if (d.type === 'asset') return 4 + Math.sqrt(d.connections);
+          return 5 + Math.sqrt(d.connections) * 2;
+      })
       .attr('fill', (d: any) => {
+          if (d.type === 'asset') return '#F08D49'; // Unreal Orange
           if (d.id === store.activePageId) return '#3b82f6'; // Active blue
           return '#6b7280'; // Gray
       })
@@ -198,8 +319,13 @@ function updateGraph() {
           d3.select(event.currentTarget).attr('stroke', '#1f2937');
       })
       .on('click', (_event, d: any) => {
-          store.setActivePage(d.id);
-          store.showKnowledgeGraph = false; // Close graph on selection? Optional.
+          if (d.type === 'page') {
+            store.setActivePage(d.id);
+            store.showKnowledgeGraph = false;
+          } else if (d.type === 'asset') {
+             // Maybe show asset details?
+             console.log('Clicked asset', d);
+          }
       });
 
   // Node Labels

@@ -254,7 +254,17 @@ export const useProjectStore = defineStore('project', () => {
 
   function setViewMode(mode: 'editor' | 'graph' | 'project-graph') {
     viewMode.value = mode;
+    showKnowledgeGraph.value = mode === 'graph' || mode === 'project-graph';
   }
+
+  watch(showKnowledgeGraph, (show) => {
+      if (show) {
+          if (viewMode.value === 'editor') viewMode.value = 'graph';
+      } else {
+          viewMode.value = 'editor';
+      }
+  });
+
 
   function updatePage(id: string, updates: Partial<DocPage>) {
     if (!project.value) return;
@@ -304,10 +314,10 @@ export const useProjectStore = defineStore('project', () => {
       if (idx !== -1) {
         const node = nodes[idx];
         if (!node) return false;
-        
+
         // Recursively delete content
         deleteContentRecursively(node);
-        
+
         nodes.splice(idx, 1);
         return true;
       }
