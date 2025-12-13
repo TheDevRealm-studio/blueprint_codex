@@ -7,6 +7,16 @@ const store = useProjectStore();
 
 const page = computed(() => store.project?.pages[props.pageId]);
 
+const allCategories = computed(() => {
+  const p = store.project;
+  if (!p) return [] as string[];
+  const cats = new Set<string>();
+  for (const page of Object.values(p.pages)) {
+    if (page.category) cats.add(page.category);
+  }
+  return Array.from(cats).sort((a, b) => a.localeCompare(b));
+});
+
 const metadata = computed(() => {
   if (!page.value) return {};
   return page.value.metadata || {};
@@ -38,6 +48,13 @@ function removeTag(tag: string) {
     const currentTags = page.value.tags || [];
     store.updatePage(props.pageId, { tags: currentTags.filter(t => t !== tag) });
   }
+}
+
+function updateCategory(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const val = input.value.trim();
+  if (!page.value) return;
+  store.updatePage(props.pageId, { category: val || 'General' });
 }
 
 const statusColors = {
@@ -112,6 +129,21 @@ const statusColors = {
           class="bg-black/20 border border-gray-700 rounded px-2 py-1 text-gray-300 focus:outline-none focus:border-ue-accent"
           placeholder="+ Add Tag"
         />
+      </div>
+
+      <!-- Category -->
+      <div class="flex flex-col gap-1">
+        <label class="text-gray-500 font-bold">Category</label>
+        <input
+          :value="page.category"
+          @change="updateCategory"
+          class="bg-black/20 border border-gray-700 rounded px-2 py-1 text-gray-300 focus:outline-none focus:border-ue-accent"
+          placeholder="General"
+          list="codex-categories"
+        />
+        <datalist id="codex-categories">
+          <option v-for="c in allCategories" :key="c" :value="c" />
+        </datalist>
       </div>
 
       <!-- Timestamps -->

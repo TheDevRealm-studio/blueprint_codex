@@ -69,6 +69,14 @@
             <input type="checkbox" v-model="coverageMode" />
             Coverage
           </label>
+
+          <label class="flex items-center gap-2 text-[11px] text-gray-300">
+            Tag
+            <select v-model="selectedTag" class="bg-black/20 border border-white/10 rounded px-1 py-0.5 text-[11px] text-gray-200">
+              <option :value="null">All</option>
+              <option v-for="t in allTags" :key="t" :value="t">{{ t }}</option>
+            </select>
+          </label>
         </div>
       </div>
 
@@ -177,7 +185,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import * as d3 from 'd3';
 import { useProjectStore } from '../../stores/project';
 import { unrealService } from '../../services/unreal';
@@ -228,6 +236,7 @@ const focusMode = ref(true);
 const focusHops = ref(1);
 const groupMode = ref<'none' | 'category' | 'ue-folder' | 'tag'>('none');
 const coverageMode = ref(true);
+const selectedTag = ref<string | null>(null);
 
 const selectedNodeId = ref<string | null>(null);
 const detailsNode = ref<GraphNode | null>(null);
@@ -338,7 +347,7 @@ const baseNodes = computed<GraphNode[]>(() => {
       const matchParts = ref.match(/^(\w+)'(.*)\.([^']+)'$/);
       if (!matchParts) continue;
 
-      const type = matchParts[1];
+      const type = matchParts[1] || 'Asset';
       const path = matchParts[2] || '';
       const name = matchParts[3] || 'Unknown';
       if (!matchesUnrealRoot(path)) continue;
@@ -358,6 +367,7 @@ const baseNodes = computed<GraphNode[]>(() => {
           assetPath: path,
           assetName: name,
           assetRef,
+          tags: ['Asset', type],
           connections: 0,
           group: 'Asset',
           docStatus,
@@ -373,7 +383,7 @@ const baseNodes = computed<GraphNode[]>(() => {
       const ref = String(block.content.reference);
       const matchParts = ref.match(/^(\w+)'(.*)\.([^']+)'$/);
       if (!matchParts) continue;
-      const type = matchParts[1];
+      const type = matchParts[1] || 'Asset';
       const path = matchParts[2] || '';
       const name = matchParts[3] || 'Unknown';
       if (!matchesUnrealRoot(path)) continue;
@@ -393,6 +403,7 @@ const baseNodes = computed<GraphNode[]>(() => {
           assetPath: path,
           assetName: name,
           assetRef,
+          tags: ['Asset', type],
           connections: 0,
           group: 'Asset',
           docStatus,
@@ -545,6 +556,16 @@ const searchResults = computed(() => {
     .slice(0, 8);
 });
 
+const allTags = computed(() => {
+  const set = new Set<string>();
+  for (const n of baseNodes.value) {
+    for (const t of (n.tags || [])) {
+      if (t) set.add(t);
+    }
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+});
+
 const pinnedNodes = computed(() => {
   const map = new Map(baseNodes.value.map(n => [n.id, n]));
   return pinnedIds.value.map(id => map.get(id)).filter((n): n is GraphNode => !!n);
@@ -661,26 +682,58 @@ function applyZoomLabelRule() {
 function applyFocusStyling(links: GraphLink[]) {
   if (!gZoom) return;
   const focusId = selectedNodeId.value;
-  if (!focusMode.value || !focusId) {
-    gZoom.selectAll<SVGGElement, any>('.node').attr('opacity', 1);
-    gZoom.selectAll<SVGLineElement, any>('.link').attr('opacity', 0.65);
-    return;
-  }
+  const tag = selectedTag.value;
 
-  const keep = getNeighborhood(focusId, links, focusHops.value);
-  gZoom.selectAll<SVGGElement, any>('.node').attr('opacity', (d: any) => (keep.has(d.id) ? 1 : 0.12));
+  const keep = (focusMode.value && focusId) ? getNeighborhood(focusId, links, focusHops.value) : null;
+
+  gZoom.selectAll<SVGGElement, any>('.node').attr('opacity', (d: any) => {
+    const id = d?.id;
+    if (!id) return 0.1;
+    let o = 1;
+    if (keep && !keep.has(id)) o = Math.min(o, 0.12);
+    if (tag) {
+      const tags = (d?.tags || []) as string[];
+      if (d?.type === 'group') o = Math.min(o, 0.25);
+      else o = Math.min(o, tags.includes(tag) ? 1 : 0.2);
+    }
+    return o;
+  });
+
   const endpointId = (e: any) => (typeof e === 'string' ? e : e?.id);
   gZoom.selectAll<SVGLineElement, any>('.link').attr('opacity', (d: any) => {
     const s = endpointId(d.source);
     const t = endpointId(d.target);
     if (!s || !t) return 0.05;
-    return (keep.has(s) && keep.has(t)) ? 0.75 : 0.05;
+    let o = keep ? ((keep.has(s) && keep.has(t)) ? 0.75 : 0.05) : 0.65;
+    if (tag) {
+      // If either endpoint has the tag, keep; otherwise dim
+      const nodeById = new Map((rendered.value.nodes as GraphNode[]).map(n => [n.id, n]));
+      const sn = nodeById.get(s);
+      const tn = nodeById.get(t);
+      const match = (sn && (sn.tags || []).includes(tag)) || (tn && (tn.tags || []).includes(tag));
+      if (!match) o = Math.min(o, 0.15);
+    }
+    return o;
   });
 }
 
-function selectNodeById(id: string, center: boolean) {
+async function selectNodeById(id: string, center: boolean, retry = false) {
   selectedNodeId.value = id;
-  const node = rendered.value.nodes.find(n => n.id === id) || baseNodes.value.find(n => n.id === id);
+  const base = baseNodes.value.find(n => n.id === id);
+  // If grouping is enabled and this node is currently hidden under a collapsed group, expand first.
+  if (!retry && center && base && groupMode.value !== 'none') {
+    const k = getGroupKeyForNode(base);
+    if (collapsedGroups.value[k]) {
+      expandGroup(k);
+      await nextTick();
+      // Ensure D3 has rebuilt before attempting to center.
+      updateGraph();
+      await nextTick();
+      return selectNodeById(id, center, true);
+    }
+  }
+
+  const node = rendered.value.nodes.find(n => n.id === id) || base;
   if (node) detailsNode.value = node;
   if (!center || !svgSel || !zoomBehavior) return;
   const target = (rendered.value.nodes as GraphNode[]).find(n => n.id === id);
@@ -896,7 +949,7 @@ watch([baseNodes, baseLinks, groupMode, collapsedGroups, coverageMode], () => {
   updateGraph();
 }, { deep: true });
 
-watch([selectedNodeId, focusMode, focusHops], () => {
+watch([selectedNodeId, focusMode, focusHops, selectedTag], () => {
   // styles applied against latest rendered selections
   const links = (rendered.value.links as GraphLink[]);
   applyFocusStyling(links);
