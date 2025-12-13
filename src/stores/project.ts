@@ -518,7 +518,7 @@ Describe what this asset is and where it is used.
 
 ## Notes
 
-- 
+-
 `;
 
     let markdownBody = baseMarkdown;

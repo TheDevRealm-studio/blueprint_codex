@@ -88,7 +88,7 @@ function initGraph() {
       while ((match = regex.exec(page.markdownBody)) !== null) {
         if (match[1]) {
             const targetTitle = match[1].trim();
-            
+
             // Skip if it looks like an asset link
             if (targetTitle.match(/^\w+'[^']+\.[^']+'$/)) continue;
 
@@ -125,7 +125,7 @@ function initGraph() {
                       assetType: type
                   } as any);
               }
-              
+
               links.push({
                   source: page.id,
                   target: id
@@ -155,7 +155,7 @@ function initGraph() {
                             assetType: type
                         } as any);
                     }
-                    
+
                     links.push({
                         source: page.id,
                         target: id

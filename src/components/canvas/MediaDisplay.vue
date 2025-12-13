@@ -34,7 +34,7 @@ async function loadMedia() {
     } else {
       error.value = 'File not found';
     }
-    
+
     // Try to load metadata for name if not provided
     if (!props.label) {
         // We can't easily get metadata here without a new storage method or just listing all.

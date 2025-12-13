@@ -78,7 +78,7 @@ const isUndoing = ref(false);
 
 function saveHistory() {
   if (!page.value) return;
-  
+
   const state = {
     blocks: JSON.parse(JSON.stringify(page.value.blocks || [])),
     edges: JSON.parse(JSON.stringify(page.value.edges || []))
@@ -97,7 +97,7 @@ function saveHistory() {
 
   history.value.push(state);
   historyIndex.value++;
-  
+
   // Limit history size
   if (history.value.length > 50) {
       history.value.shift();
@@ -111,9 +111,9 @@ function undo() {
         const state = history.value[historyIndex.value];
         if (state) {
             isUndoing.value = true;
-            store.updatePage(page.value!.id, { 
-                blocks: JSON.parse(JSON.stringify(state.blocks)), 
-                edges: JSON.parse(JSON.stringify(state.edges)) 
+            store.updatePage(page.value!.id, {
+                blocks: JSON.parse(JSON.stringify(state.blocks)),
+                edges: JSON.parse(JSON.stringify(state.edges))
             });
         }
     }
@@ -125,9 +125,9 @@ function redo() {
         const state = history.value[historyIndex.value];
         if (state) {
             isUndoing.value = true;
-            store.updatePage(page.value!.id, { 
-                blocks: JSON.parse(JSON.stringify(state.blocks)), 
-                edges: JSON.parse(JSON.stringify(state.edges)) 
+            store.updatePage(page.value!.id, {
+                blocks: JSON.parse(JSON.stringify(state.blocks)),
+                edges: JSON.parse(JSON.stringify(state.edges))
             });
         }
     }
@@ -161,11 +161,11 @@ function handleKeyDown(e: KeyboardEvent) {
 
 function deleteNodes(nodeIds: string[]) {
     if (!page.value || nodeIds.length === 0) return;
-    
+
     const ids = new Set(nodeIds);
     const currentBlocks = [...page.value.blocks];
     const newBlocks = currentBlocks.filter(b => !ids.has(b.id));
-    
+
     if (newBlocks.length !== currentBlocks.length) {
         store.updatePage(page.value.id, { blocks: newBlocks });
     }
@@ -229,7 +229,7 @@ watch(() => page.value, (newPage: any) => {
               existingNode.data.width !== block.width ||
               existingNode.data.height !== block.height ||
               existingNode.data.label !== getBlockLabel(block)) {
-              
+
               existingNode.data = {
                   type: block.type,
                   content: block.content,
@@ -574,7 +574,7 @@ async function handleDroppedFiles(fileArray: File[], position: { x: number; y: n
       try {
           console.log('Starting background upload for:', file.name);
           const asset = await storage.saveAsset(file);
-          
+
           // Update the specific block with the real Asset ID
           // Fetch latest state to avoid overwriting other changes
           const latestPage = store.project?.pages[pageId];
@@ -582,7 +582,7 @@ async function handleDroppedFiles(fileArray: File[], position: { x: number; y: n
               const blockIndex = latestPage.blocks.findIndex(b => b.id === blockId);
               if (blockIndex !== -1) {
                   const block = latestPage.blocks[blockIndex] as MediaBlock;
-                  
+
                   // Revoke the temporary blob URL
                   if (block.content.filePath.startsWith('blob:')) {
                       URL.revokeObjectURL(block.content.filePath);
@@ -607,7 +607,7 @@ async function handleDroppedFiles(fileArray: File[], position: { x: number; y: n
           console.error('Failed to upload file in background:', file.name, e);
       }
   });
-  
+
   console.log('Optimistic blocks created, uploads running in background');
 }
 

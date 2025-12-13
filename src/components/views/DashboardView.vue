@@ -178,7 +178,7 @@ function renderChart() {
     .on('mouseout', function() {
         d3.select(this).attr('opacity', 0.7);
     });
-    
+
   // Add values at end of bars
   svg.selectAll('myLabels')
     .data(data)
