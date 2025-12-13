@@ -2,12 +2,13 @@
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import { useProjectStore } from '../../stores/project';
 import { storage } from '../../services/storage';
+import { aiService } from '../../services/ai';
 import type { Block, LinkBlock, Edge as BlockEdge, YoutubeBlock, WebsiteBlock, MediaBlock } from '../../types';
 import { VueFlow, useVueFlow, type Node, type Edge, type Connection } from '@vue-flow/core';
 import { Background } from '@vue-flow/background';
 import { Controls } from '@vue-flow/controls';
 import CustomNode from '../canvas/nodes/CustomNode.vue';
-import { Type, ListOrdered, Image, Network, Code, Package, Trash2, Unplug } from 'lucide-vue-next';
+import { Type, ListOrdered, Image, Network, Code, Package, Trash2, Unplug, FileText, Sparkles } from 'lucide-vue-next';
 
 // Import Vue Flow styles
 import '@vue-flow/core/dist/style.css';
@@ -212,6 +213,11 @@ watch(() => page.value, (newPage: any) => {
       const existingNode = nodes.value.find(n => n.id === block.id);
 
       if (existingNode) {
+          const desiredZ = block.type === 'region' ? 0 : 10;
+          if ((existingNode as any).zIndex !== desiredZ) {
+            (existingNode as any).zIndex = desiredZ;
+          }
+
           // Update position if changed
           if (existingNode.position.x !== block.x || existingNode.position.y !== block.y) {
               existingNode.position = { x: block.x, y: block.y };
@@ -240,6 +246,7 @@ watch(() => page.value, (newPage: any) => {
               id: block.id,
               type: 'custom',
               position: { x: block.x, y: block.y },
+            zIndex: block.type === 'region' ? 0 : 10,
               data: {
                   type: block.type,
                   content: block.content,
@@ -284,6 +291,7 @@ watch(() => page.value, (newPage: any) => {
 }, { immediate: true, deep: true });
 
 function getBlockLabel(block: Block) {
+  if (block.type === 'region') return block.content?.title || 'Region';
     if (block.type === 'media') return block.content.label || 'Media';
     if (block.type === 'steps') return 'Steps';
     if (block.type === 'blueprint') return 'Blueprint';
@@ -737,6 +745,7 @@ onUnmounted(() => {
 // --- Toolbar ---
 
 const availableBlocks = [
+  { type: 'region', label: 'Region', icon: Package },
   { type: 'text', label: 'Text Block', icon: Type },
   { type: 'steps', label: 'Steps List', icon: ListOrdered },
   { type: 'media', label: 'Media', icon: Image },
@@ -754,14 +763,16 @@ function addBlock(type: Block['type']) {
   const x = 100 + Math.random() * 50;
   const y = 100 + Math.random() * 50;
 
+  const size = getDefaultSize(type);
+
   const newBlock: Block = {
     id: crypto.randomUUID(),
     type,
     content: getDefaultContent(type),
     x,
     y,
-    width: 300,
-    height: 200
+    width: size.width,
+    height: size.height
   };
 
   const newBlocks = [...page.value.blocks, newBlock];
@@ -770,6 +781,7 @@ function addBlock(type: Block['type']) {
 
 function getDefaultContent(type: Block['type']) {
   switch (type) {
+    case 'region': return { title: 'Lane' };
     case 'text': return 'New text block';
     case 'steps': return ['Step 1', 'Step 2'];
     case 'media': return { label: 'Image', filePath: '', kind: 'image' };
@@ -777,6 +789,311 @@ function getDefaultContent(type: Block['type']) {
     case 'code': return { code: '// Write your code here...', language: 'cpp' };
     default: return {};
   }
+}
+
+function getDefaultSize(type: Block['type']) {
+  switch (type) {
+    case 'region':
+      return { width: 700, height: 360 };
+    case 'asset':
+      return { width: 280, height: 160 };
+    case 'link':
+      return { width: 240, height: 120 };
+    default:
+      return { width: 300, height: 200 };
+  }
+}
+
+function getTextFromBlock(block: Block): string {
+  if (block.type === 'text') {
+    if (typeof block.content === 'string') return block.content;
+    return String(block.content?.text || '');
+  }
+  return '';
+}
+
+function collectBlocksInsideRegion(region: Block, blocks: Block[]): Block[] {
+  const rx1 = region.x;
+  const ry1 = region.y;
+  const rx2 = region.x + region.width;
+  const ry2 = region.y + region.height;
+
+  const inside: Block[] = [];
+  for (const b of blocks) {
+    if (b.id === region.id) continue;
+    if (b.type === 'region') continue;
+    const cx = b.x + b.width / 2;
+    const cy = b.y + b.height / 2;
+    if (cx >= rx1 && cx <= rx2 && cy >= ry1 && cy <= ry2) inside.push(b);
+  }
+
+  inside.sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  return inside;
+}
+
+function blockToMarkdownBullet(block: Block): string {
+  switch (block.type) {
+    case 'asset':
+      return `- [[${String(block.content?.reference || '').trim()}]]`;
+    case 'blueprint': {
+      const bp = String(block.content?.blueprintString || '').trim();
+      const excerpt = bp.length > 2000 ? `${bp.slice(0, 2000)}\n...` : bp;
+      return `- Blueprint:\n\n\`\`\`blueprint\n${excerpt}\n\`\`\``;
+    }
+    case 'link':
+      return `- [[${String((block as any).content?.title || 'Page')}]]`;
+    case 'media': {
+      const label = String(block.content?.label || 'Media');
+      const filePath = String(block.content?.filePath || '');
+      const kind = String(block.content?.kind || 'image');
+      if (kind === 'video') return `- <video src="${filePath}" controls></video>`;
+      return `- ![${label}](${filePath})`;
+    }
+    case 'steps': {
+      const steps = Array.isArray(block.content) ? block.content : [];
+      const items = steps.map((s: any, i: number) => `  ${i + 1}. ${String(s)}`).join('\n');
+      return `- Steps:\n${items}`;
+    }
+    case 'code': {
+      const lang = String(block.content?.language || 'text');
+      const code = String(block.content?.code || '').trim();
+      const excerpt = code.length > 2000 ? `${code.slice(0, 2000)}\n...` : code;
+      return `- Code:\n\n\`\`\`${lang}\n${excerpt}\n\`\`\``;
+    }
+    case 'text': {
+      const text = getTextFromBlock(block).trim();
+      const firstLine = text.split(/\r?\n/).find(l => l.trim().length > 0) || '';
+      const excerpt = firstLine.length > 140 ? `${firstLine.slice(0, 140)}...` : firstLine;
+      return `- ${excerpt || 'Text'}`;
+    }
+    default:
+      return `- ${block.type}`;
+  }
+}
+
+function buildCollectionMarkdownFromCanvasBlocks(title: string, blocks: Block[]): string {
+  const regions = blocks.filter(b => b.type === 'region');
+  const nonRegions = blocks.filter(b => b.type !== 'region');
+  const used = new Set<string>();
+
+  let md = `# ${title}\n\n`;
+
+  for (const region of regions) {
+    const regionTitle = String(region.content?.title || 'Lane').trim();
+    md += `## ${regionTitle}\n\n`;
+    const inside = collectBlocksInsideRegion(region, blocks);
+    if (!inside.length) {
+      md += `- (empty)\n\n`;
+      continue;
+    }
+    for (const b of inside) {
+      used.add(b.id);
+      md += `${blockToMarkdownBullet(b)}\n`;
+    }
+    md += `\n`;
+  }
+
+  const remaining = nonRegions.filter(b => !used.has(b.id));
+  if (remaining.length) {
+    remaining.sort((a, b) => (a.y - b.y) || (a.x - b.x));
+    md += `## Unsorted\n\n`;
+    for (const b of remaining) md += `${blockToMarkdownBullet(b)}\n`;
+    md += `\n`;
+  }
+
+  return md;
+}
+
+async function createCollectionPageFromCanvas() {
+  if (!page.value || !store.project) return;
+
+  const defaultTitle = `${page.value.title} Collection`;
+  const title = prompt('Collection page title:', defaultTitle) || '';
+  if (!title.trim()) return;
+
+  const base = buildCollectionMarkdownFromCanvasBlocks(title.trim(), page.value.blocks || []);
+
+  const useAI = aiService.isEnabled()
+    ? confirm('Use AI to rewrite the collection page into cleaner documentation?')
+    : false;
+
+  let markdownBody = base;
+  if (useAI) {
+    try {
+      const promptText = `Rewrite this Canvas collection into clean, practical Unreal Engine documentation in Markdown.
+Rules:
+- Keep ALL wiki-links exactly as-is (like [[Blueprint'/Game/...Name.Name']]).
+- Keep code blocks intact.
+- No emojis.
+- Keep it concise and structured.
+
+Input Markdown:
+${base}`;
+
+      const res = await aiService.customRequest(promptText, 1200);
+      const text = res.text.trim();
+      if (text) markdownBody = text;
+    } catch (e) {
+      console.warn('AI collection rewrite failed, using base markdown', e);
+    }
+  }
+
+  store.addPage(title.trim());
+  const newId = (store as any).activePageId as string | null;
+  if (!newId) return;
+
+  store.updatePage(newId, {
+    category: 'Collections',
+    tags: ['Collection'],
+    markdownBody,
+    viewMode: 'document',
+    metadata: {
+      ...(store.project.pages[newId] as any)?.metadata,
+      createdAt: (store.project.pages[newId] as any)?.metadata?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      sourceCanvasPageId: page.value.id
+    }
+  } as any);
+
+  store.setActivePage(newId);
+}
+
+async function generateSystemMapFromSelectedNode() {
+  if (!page.value) return;
+
+  const selected = nodes.value.filter((n: any) => n.selected);
+  const seedNode = selected[0];
+  if (!seedNode) {
+    alert('Select a Blueprint or Text node first.');
+    return;
+  }
+
+  const seedBlock = page.value.blocks.find(b => b.id === seedNode.id);
+  if (!seedBlock || (seedBlock.type !== 'blueprint' && seedBlock.type !== 'text')) {
+    alert('System Map works with Text or Blueprint nodes.');
+    return;
+  }
+
+  if (!aiService.isEnabled()) {
+    alert('AI is not configured. Open Settings and add your API key/model.');
+    return;
+  }
+
+  const goal = prompt('System goal (optional):', '') ?? '';
+  const triggers = prompt('Key events/triggers (optional):', '') ?? '';
+  const constraints = prompt('Constraints / perf concerns (optional):', '') ?? '';
+
+  const seedText = seedBlock.type === 'text'
+    ? getTextFromBlock(seedBlock)
+    : String(seedBlock.content?.blueprintString || '');
+
+  const promptText = `You are generating a structured Unreal Engine system map from a seed note/blueprint.
+Return ONLY valid JSON. No markdown.
+
+Seed type: ${seedBlock.type}
+Seed content (may be truncated):
+${seedText.slice(0, 8000)}
+
+User notes:
+- goal: ${goal}
+- triggers: ${triggers}
+- constraints: ${constraints}
+
+Output JSON schema:
+{
+  "title": string,
+  "overview": string,
+  "components": string[],
+  "dataFlow": string[],
+  "events": string[],
+  "assets": string[],
+  "failurePoints": string[],
+  "todo": string[]
+}
+
+For assets: use Unreal reference format like Blueprint'/Game/Path/Name.Name' when you can.
+`;
+
+  let data: any = null;
+  try {
+    const res = await aiService.customRequest(promptText, 1400);
+    data = JSON.parse(res.text.trim());
+  } catch (e) {
+    console.error('Failed to generate system map JSON', e);
+    alert('AI returned an invalid system map.');
+    return;
+  }
+
+  const title = String(data?.title || 'System Map');
+  const x = (seedBlock.x ?? 100) - 80;
+  const y = (seedBlock.y ?? 100) - 80;
+
+  const regionId = crypto.randomUUID();
+  const newBlocks: Block[] = [];
+
+  newBlocks.push({
+    id: regionId,
+    type: 'region',
+    content: { title },
+    x,
+    y,
+    width: 980,
+    height: 640
+  } as any);
+
+  const mkText = (heading: string, lines: any, dx: number, dy: number, w: number, h: number) => {
+    const arr = Array.isArray(lines) ? lines : [];
+    const body = arr.map((s: any) => `- ${String(s)}`).join('\n');
+    const text = `## ${heading}\n\n${body}`.trim();
+    newBlocks.push({
+      id: crypto.randomUUID(),
+      type: 'text',
+      content: { text, fontSize: 12 },
+      x: x + dx,
+      y: y + dy,
+      width: w,
+      height: h
+    } as any);
+  };
+
+  const overview = String(data?.overview || '').trim();
+  newBlocks.push({
+    id: crypto.randomUUID(),
+    type: 'text',
+    content: { text: `## Overview\n\n${overview}`, fontSize: 12 },
+    x: x + 20,
+    y: y + 60,
+    width: 460,
+    height: 180
+  } as any);
+
+  mkText('Components', data?.components, 20, 260, 460, 240);
+  mkText('Data Flow', data?.dataFlow, 500, 60, 460, 200);
+  mkText('Events', data?.events, 500, 280, 460, 220);
+  mkText('Failure Points', data?.failurePoints, 20, 520, 460, 200);
+  mkText('TODO', data?.todo, 500, 520, 460, 200);
+
+  const assets: any[] = Array.isArray(data?.assets) ? data.assets : [];
+  const assetRefs = assets
+    .map(a => String(a).trim())
+    .filter(s => s.includes("'") && s.includes('/Game/') && s.endsWith("'"))
+    .slice(0, 10);
+
+  let ax = x + 20;
+  for (const ref of assetRefs) {
+    newBlocks.push({
+      id: crypto.randomUUID(),
+      type: 'asset',
+      content: { reference: ref },
+      x: ax,
+      y: y + 740,
+      width: 300,
+      height: 120
+    } as any);
+    ax += 320;
+  }
+
+  store.updatePage(page.value.id, { blocks: [...page.value.blocks, ...newBlocks] });
 }
 
 </script>
@@ -827,6 +1144,26 @@ function getDefaultContent(type: Block['type']) {
       >
         <component :is="block.icon" class="w-5 h-5 mb-1 text-gray-300 group-hover:text-white group-hover:scale-110 transition-all" />
         <span class="text-[10px] text-gray-400 uppercase font-bold">{{ block.label.split(' ')[0] }}</span>
+      </button>
+
+      <div class="w-px bg-white/10 mx-1"></div>
+
+      <button
+        @click="createCollectionPageFromCanvas"
+        class="flex flex-col items-center justify-center w-16 h-14 rounded hover:bg-white/10 transition-colors group"
+        title="Create Collection Page from Canvas"
+      >
+        <FileText class="w-5 h-5 mb-1 text-gray-300 group-hover:text-white group-hover:scale-110 transition-all" />
+        <span class="text-[10px] text-gray-400 uppercase font-bold">Collection</span>
+      </button>
+
+      <button
+        @click="generateSystemMapFromSelectedNode"
+        class="flex flex-col items-center justify-center w-16 h-14 rounded hover:bg-white/10 transition-colors group"
+        title="Generate System Map from Selected Node"
+      >
+        <Sparkles class="w-5 h-5 mb-1 text-gray-300 group-hover:text-white group-hover:scale-110 transition-all" />
+        <span class="text-[10px] text-gray-400 uppercase font-bold">System</span>
       </button>
     </div>
 

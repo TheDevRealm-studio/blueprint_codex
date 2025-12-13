@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue';
 import type { Project, DocPage, FileSystemNode } from '../types';
 import { storage } from '../services/storage';
 import { unrealService } from '../services/unreal';
+import { aiService } from '../services/ai';
 
 import { templates } from '../config/templates';
 
@@ -423,6 +424,356 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
+  type UnrealAssetLike = {
+    name: string;
+    path: string;
+    asset_type?: string;
+    file_path?: string;
+  };
+
+  function buildUnrealAssetRef(asset: UnrealAssetLike): string {
+    const assetType = asset.asset_type || 'Asset';
+    // asset.path expected like: /Game/Folder/AssetName
+    // ref expected like: Type'/Game/Folder/AssetName.AssetName'
+    return `${assetType}'${asset.path}.${asset.name}'`;
+  }
+
+  function defaultTagsForUnrealAsset(asset: UnrealAssetLike): string[] {
+    const tags = new Set<string>();
+    tags.add('Asset');
+    if (asset.asset_type) tags.add(asset.asset_type);
+
+    // Use folder segments as lightweight categories (top 2)
+    const parts = asset.path.replace(/^\/Game\/?/, '').split('/').filter(Boolean);
+    for (const part of parts.slice(0, 2)) {
+      // Avoid adding the asset name as a tag
+      if (part && part !== asset.name) tags.add(part);
+    }
+
+    return Array.from(tags).filter(t => t && t.length <= 32).slice(0, 8);
+  }
+
+  async function suggestTagsForUnrealAsset(asset: UnrealAssetLike): Promise<string[]> {
+    const fallback = defaultTagsForUnrealAsset(asset);
+    if (!aiService.isEnabled()) return fallback;
+
+    const prompt = `You are helping categorize Unreal Engine assets for a personal knowledge base.
+Return ONLY a JSON array of 3 to 8 short tags (strings). No markdown.
+
+Asset:
+- name: ${asset.name}
+- type: ${asset.asset_type || 'Unknown'}
+- path: ${asset.path}
+
+Rules:
+- Tags should be short (1-3 words)
+- Prefer pipeline-style tags (UI, VFX, SFX, Character, Environment, Material, Texture, Blueprint, Level, Animation, etc.)
+- Avoid duplicates and avoid the exact full path as a tag.
+`;
+
+    try {
+      const res = await aiService.customRequest(prompt, 200);
+      const raw = res.text.trim();
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return fallback;
+      const tags = parsed
+        .filter((t: any) => typeof t === 'string')
+        .map((t: string) => t.trim())
+        .filter((t: string) => t.length > 0 && t.length <= 32);
+      return Array.from(new Set(tags)).slice(0, 8);
+    } catch {
+      return fallback;
+    }
+  }
+
+  function findDocPageByUnrealRef(ref: string): DocPage | null {
+    if (!project.value) return null;
+    const pages = Object.values(project.value.pages);
+    return pages.find(p => p.metadata?.unrealAssetRef === ref) || null;
+  }
+
+  async function createOrUpdateDocPageForUnrealAsset(
+    asset: UnrealAssetLike,
+    options?: { useAI?: boolean; openPage?: boolean }
+  ) {
+    if (!project.value) return;
+
+    const useAI = options?.useAI ?? aiService.isEnabled();
+    const openPage = options?.openPage ?? true;
+
+    const ref = buildUnrealAssetRef(asset);
+    const existing = findDocPageByUnrealRef(ref);
+
+    const title = `ASSET: ${asset.name}`;
+    const slug = `asset-${asset.name}`.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9\-]/g, '');
+
+    const baseMarkdown =
+`# ${asset.name}
+
+**Reference**: [[${ref}]]
+
+## Overview
+
+Describe what this asset is and where it is used.
+
+## Notes
+
+- 
+`;
+
+    let markdownBody = baseMarkdown;
+    let tags = defaultTagsForUnrealAsset(asset);
+
+    // If AI is enabled, generate a better doc stub and tags
+    if (useAI && aiService.isEnabled()) {
+      const docPrompt = `Create a concise Unreal Engine asset documentation page in Markdown.
+Include sections: Overview, Usage, Related, Notes.
+Include the exact reference wiki-link somewhere: [[${ref}]]
+Do NOT use emojis.
+Keep it practical and short.
+
+Asset:
+- name: ${asset.name}
+- type: ${asset.asset_type || 'Unknown'}
+- path: ${asset.path}
+`;
+
+      try {
+        const res = await aiService.customRequest(docPrompt, 900);
+        const text = res.text.trim();
+        if (text.length > 0) markdownBody = text;
+      } catch {
+        // fall back to baseMarkdown
+      }
+
+      tags = await suggestTagsForUnrealAsset(asset);
+    }
+
+    if (existing) {
+      // Merge: keep existing markdown if it's already populated; ensure ref exists.
+      const hasRef = existing.markdownBody?.includes(ref);
+      const updatedMarkdown = hasRef ? existing.markdownBody : `${existing.markdownBody || ''}\n\n[[${ref}]]\n`;
+
+      updatePage(existing.id, {
+        title: existing.title || title,
+        slug: existing.slug || slug,
+        category: existing.category || 'Assets',
+        tags: Array.from(new Set([...(existing.tags || []), ...tags])),
+        markdownBody: updatedMarkdown,
+        metadata: {
+          ...(existing.metadata || {}),
+          unrealAssetRef: ref,
+          unrealAssetType: asset.asset_type,
+          unrealAssetPath: asset.path,
+          unrealAssetFilePath: asset.file_path
+        }
+      });
+
+      if (openPage) setActivePage(existing.id);
+      return;
+    }
+
+    const id = crypto.randomUUID();
+    const newPage: DocPage = {
+      id,
+      title,
+      slug: slug || id,
+      category: 'Assets',
+      tags,
+      blocks: [],
+      edges: [],
+      markdownBody,
+      viewMode: 'document',
+      metadata: {
+        unrealAssetRef: ref,
+        unrealAssetType: asset.asset_type,
+        unrealAssetPath: asset.path,
+        unrealAssetFilePath: asset.file_path,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+    };
+
+    project.value.pages[id] = newPage;
+    project.value.structure.push({
+      id: crypto.randomUUID(),
+      name: title,
+      type: 'page',
+      pageId: id
+    });
+
+    if (openPage) setActivePage(id);
+  }
+
+  function parseUnrealRef(ref: string): { assetType: string; path: string; name: string } | null {
+    const match = ref.match(/^([A-Za-z0-9_]+)'([^']+)'$/);
+    if (!match) return null;
+    const assetType = match[1] || 'Asset';
+    const inner = match[2] || '';
+    const dotIdx = inner.lastIndexOf('.');
+    if (dotIdx <= 0) return null;
+    const path = inner.slice(0, dotIdx);
+    const name = inner.slice(dotIdx + 1);
+    if (!path || !name) return null;
+    return { assetType, path, name };
+  }
+
+  function collectUnrealRefsFromMarkdown(markdown: string): string[] {
+    const refs: string[] = [];
+    const regex = /\[\[([A-Za-z0-9_]+)'([^']+)'\]\]/g;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(markdown)) !== null) {
+      const assetType = match[1];
+      const inner = match[2];
+      if (!assetType || !inner) continue;
+      refs.push(`${assetType}'${inner}'`);
+    }
+    return refs;
+  }
+
+  function scanBrokenUnrealReferences() {
+    if (!project.value) return { broken: [], total: 0 };
+
+    const assetsRef = unrealService.getAssets();
+    const unrealAssets = assetsRef.value || [];
+    const assetKeySet = new Set(unrealAssets.map(a => `${a.path}::${a.name}`));
+
+    const broken: Array<{ ref: string; pageId: string; pageTitle: string; source: 'markdown' | 'canvas' }> = [];
+    let total = 0;
+
+    for (const page of Object.values(project.value.pages)) {
+      // Markdown refs
+      const mdRefs = collectUnrealRefsFromMarkdown(page.markdownBody || '');
+      for (const ref of mdRefs) {
+        total++;
+        const parsed = parseUnrealRef(ref);
+        if (!parsed) continue;
+        const key = `${parsed.path}::${parsed.name}`;
+        if (!assetKeySet.has(key)) {
+          broken.push({ ref, pageId: page.id, pageTitle: page.title, source: 'markdown' });
+        }
+      }
+
+      // Canvas refs
+      for (const block of page.blocks || []) {
+        if (block.type !== 'asset' || !block.content?.reference) continue;
+        total++;
+        const ref = String(block.content.reference);
+        const parsed = parseUnrealRef(ref);
+        if (!parsed) continue;
+        const key = `${parsed.path}::${parsed.name}`;
+        if (!assetKeySet.has(key)) {
+          broken.push({ ref, pageId: page.id, pageTitle: page.title, source: 'canvas' });
+        }
+      }
+    }
+
+    return { broken, total };
+  }
+
+  function bestGuessReplacementRef(oldRef: string): string | null {
+    const parsed = parseUnrealRef(oldRef);
+    if (!parsed) return null;
+
+    const results = unrealService.search(parsed.name);
+    const best = results[0];
+    if (!best) return null;
+    return buildUnrealAssetRef(best);
+  }
+
+  function replaceUnrealReferenceEverywhere(oldRef: string, newRef: string) {
+    if (!project.value) return 0;
+    let pagesChanged = 0;
+
+    for (const page of Object.values(project.value.pages)) {
+      let changed = false;
+      let markdownBody = page.markdownBody || '';
+
+      if (markdownBody.includes(oldRef)) {
+        markdownBody = markdownBody.split(oldRef).join(newRef);
+        changed = true;
+      }
+
+      const blocks = page.blocks || [];
+      const newBlocks = blocks.map(b => {
+        if (b.type === 'asset' && b.content?.reference === oldRef) {
+          changed = true;
+          return { ...b, content: { ...b.content, reference: newRef } } as any;
+        }
+        return b;
+      });
+
+      if (changed) {
+        pagesChanged++;
+        updatePage(page.id, { markdownBody, blocks: newBlocks, metadata: { ...(page.metadata || {}), updatedAt: new Date().toISOString() } });
+      }
+    }
+
+    return pagesChanged;
+  }
+
+  function estimatePagesAffectedByRef(oldRef: string) {
+    if (!project.value) return 0;
+    let count = 0;
+    for (const page of Object.values(project.value.pages)) {
+      const inMarkdown = (page.markdownBody || '').includes(oldRef);
+      const inBlocks = (page.blocks || []).some(b => b.type === 'asset' && b.content?.reference === oldRef);
+      if (inMarkdown || inBlocks) count++;
+    }
+    return count;
+  }
+
+  function runReferenceHygieneAutoFix() {
+    const { broken } = scanBrokenUnrealReferences();
+    if (broken.length === 0) {
+      alert('No broken Unreal references found.');
+      return;
+    }
+
+    const mapping = new Map<string, string>();
+    for (const item of broken) {
+      if (mapping.has(item.ref)) continue;
+      const replacement = bestGuessReplacementRef(item.ref);
+      if (replacement && replacement !== item.ref) mapping.set(item.ref, replacement);
+    }
+
+    if (mapping.size === 0) {
+      alert('Found broken references, but no safe replacement guesses were found.');
+      return;
+    }
+
+    const previewLines: string[] = [];
+    let estimatedPages = 0;
+    let idx = 0;
+    for (const [oldRef, newRef] of mapping.entries()) {
+      estimatedPages += estimatePagesAffectedByRef(oldRef);
+      if (idx < 12) previewLines.push(`- ${oldRef}  ->  ${newRef}`);
+      idx++;
+    }
+
+    const ok = confirm(
+      `Reference Hygiene Auto-fix Preview\n\n` +
+      `Broken references found: ${broken.length}\n` +
+      `Unique replacements: ${mapping.size}\n` +
+      `Estimated pages affected: ~${estimatedPages}\n\n` +
+      `${previewLines.join('\n')}` +
+      `${mapping.size > 12 ? '\n\n...more mappings (see console)' : ''}` +
+      `\n\nApply these replacements?`
+    );
+    if (!ok) return;
+
+    if (mapping.size > 12) {
+      console.table(Array.from(mapping.entries()).map(([oldRef, newRef]) => ({ oldRef, newRef })));
+    }
+
+    let fixed = 0;
+    for (const [oldRef, newRef] of mapping.entries()) {
+      fixed += replaceUnrealReferenceEverywhere(oldRef, newRef);
+    }
+
+    alert(`Auto-fix complete. Updated ${fixed} page(s).`);
+  }
+
   // Watch for project changes to load Unreal context
   watch(project, (newVal) => {
     if (newVal && newVal.unrealProjectPath) {
@@ -453,6 +804,12 @@ export const useProjectStore = defineStore('project', () => {
     importProject,
     linkUnrealProject,
     addLink,
+
+    // Unreal AI / Hygiene helpers
+    createOrUpdateDocPageForUnrealAsset,
+    suggestTagsForUnrealAsset,
+    scanBrokenUnrealReferences,
+    runReferenceHygieneAutoFix,
     serverStatus,
     saveStatus,
     isCommandPaletteOpen,

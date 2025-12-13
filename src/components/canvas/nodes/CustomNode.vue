@@ -7,17 +7,18 @@ import BlueprintVisualizer from '../../BlueprintVisualizer.vue';
 import UnrealAssetCard from '../../UnrealAssetCard.vue';
 import { useProjectStore } from '../../../stores/project';
 import { unrealService } from '../../../services/unreal';
+import { aiService } from '../../../services/ai';
 import type { Pin } from '../../../types';
 import '@vue-flow/node-resizer/dist/style.css';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/atom-one-dark.css';
 import { marked } from 'marked';
-import { Network, Image, ListOrdered, Link, Code, Package, Youtube, Globe, Type, X, Plus, Edit2, Check, Bold, Italic, Heading1, Heading2, List } from 'lucide-vue-next';
+import { Network, Image, ListOrdered, Link, Code, Package, Youtube, Globe, Type, X, Plus, Edit2, Check, Bold, Italic, Heading1, Heading2, List, Sparkles } from 'lucide-vue-next';
 
 const props = defineProps<{
   id: string;
   data: {
-    type: 'text' | 'steps' | 'media' | 'blueprint' | 'link' | 'code' | 'asset' | 'youtube' | 'website';
+    type: 'region' | 'text' | 'steps' | 'media' | 'blueprint' | 'link' | 'code' | 'asset' | 'youtube' | 'website';
     content: any;
     label?: string;
     width?: number;
@@ -32,6 +33,7 @@ const props = defineProps<{
 const store = useProjectStore();
 const isEditingCode = ref(false);
 const isEditingText = ref(false);
+const isExplainingBlueprint = ref(false);
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 const assetSearchQuery = ref('');
 const showAssetResults = ref(false);
@@ -54,6 +56,7 @@ const nodeStyle = computed(() => ({
 
 const headerColor = computed(() => {
   switch (props.data.type) {
+    case 'region': return 'bg-gray-900/40';
     case 'blueprint': return 'bg-blue-700';
     case 'media': return 'bg-purple-700';
     case 'steps': return 'bg-orange-700';
@@ -229,6 +232,53 @@ function copyAssetPath() {
   }
 }
 
+function addTextBlockNearThis(text: string) {
+  const pageId = props.data.pageId;
+  const page = store.project?.pages[pageId];
+  if (!page) return;
+
+  const thisBlock = page.blocks.find(b => b.id === props.id);
+  const x = (thisBlock?.x ?? 100) + (thisBlock?.width ?? 300) + 40;
+  const y = thisBlock?.y ?? 100;
+
+  const newBlock: any = {
+    id: crypto.randomUUID(),
+    type: 'text',
+    content: { text, fontSize: 12 },
+    x,
+    y,
+    width: 380,
+    height: 260
+  };
+
+  store.updatePage(pageId, { blocks: [...page.blocks, newBlock] });
+}
+
+async function explainBlueprintWithAI() {
+  if (props.data.type !== 'blueprint') return;
+  const bp = props.data.content?.blueprintString;
+  if (!bp || typeof bp !== 'string') return;
+
+  if (!aiService.isEnabled()) {
+    alert('AI is not configured. Open Settings and add your API key/model.');
+    return;
+  }
+
+  isExplainingBlueprint.value = true;
+  try {
+    const trimmed = bp.length > 12000 ? bp.slice(0, 12000) : bp;
+    const explanation = await aiService.explainBlueprint(trimmed);
+    if (explanation && explanation.trim().length > 0) {
+      addTextBlockNearThis(explanation.trim());
+    }
+  } catch (e) {
+    console.error('Failed to explain blueprint', e);
+    alert('Failed to run AI blueprint explanation.');
+  } finally {
+    isExplainingBlueprint.value = false;
+  }
+}
+
 function updateContent(newContent: any) {
   if (props.data.pageId) {
     // We need to find the block in the store and update it
@@ -292,8 +342,11 @@ function onResizeEnd(event: any) {
 
 <template>
   <div
-    class="rounded-lg shadow-lg bg-ue-panel border border-black overflow-hidden flex flex-col min-w-[200px] group"
-    :class="{ 'ring-2 ring-ue-selected': selected }"
+    class="rounded-lg overflow-hidden flex flex-col min-w-[200px] group"
+    :class="[
+      { 'ring-2 ring-ue-selected': selected },
+      data.type === 'region' ? 'bg-transparent border-0 shadow-none' : 'shadow-lg bg-ue-panel border border-black'
+    ]"
     :style="nodeStyle"
   >
     <NodeResizer
@@ -305,12 +358,12 @@ function onResizeEnd(event: any) {
         @resize-end="onResizeEnd"
     />
 
-    <!-- Handles -->
-    <Handle type="target" :position="Position.Left" class="!bg-white !w-3 !h-3" />
-    <Handle type="source" :position="Position.Right" class="!bg-white !w-3 !h-3" />
+    <!-- Handles (not for regions) -->
+    <Handle v-if="data.type !== 'region'" type="target" :position="Position.Left" class="!bg-white !w-3 !h-3" />
+    <Handle v-if="data.type !== 'region'" type="source" :position="Position.Right" class="!bg-white !w-3 !h-3" />
 
     <!-- Extra Inputs -->
-    <div class="absolute left-0 top-10 bottom-0 flex flex-col gap-4 py-2 pointer-events-none z-50">
+    <div v-if="data.type !== 'region'" class="absolute left-0 top-10 bottom-0 flex flex-col gap-4 py-2 pointer-events-none z-50">
         <div v-for="pin in extraInputs" :key="pin.id" class="relative pointer-events-auto group/pin">
             <Handle :id="pin.id" type="target" :position="Position.Left" class="!bg-ue-accent !w-3 !h-3 !border !border-white" />
             <!-- Pin Label/Delete -->
@@ -327,7 +380,7 @@ function onResizeEnd(event: any) {
     </div>
 
     <!-- Extra Outputs -->
-    <div class="absolute right-0 top-10 bottom-0 flex flex-col gap-4 py-2 items-end pointer-events-none z-50">
+    <div v-if="data.type !== 'region'" class="absolute right-0 top-10 bottom-0 flex flex-col gap-4 py-2 items-end pointer-events-none z-50">
         <div v-for="pin in extraOutputs" :key="pin.id" class="relative pointer-events-auto group/pin">
             <Handle :id="pin.id" type="source" :position="Position.Right" class="!bg-ue-accent !w-3 !h-3 !border !border-white" />
              <!-- Pin Label/Delete -->
@@ -343,8 +396,24 @@ function onResizeEnd(event: any) {
         </button>
     </div>
 
-    <!-- Header -->
-    <div :class="['px-3 py-1 flex items-center justify-between text-xs font-bold text-white uppercase tracking-wider handle', headerColor]">
+    <!-- Region (Lane) -->
+    <div v-if="data.type === 'region'" class="bg-ue-panel/30 border border-ue-accent/40 flex-1 flex flex-col">
+      <div class="px-3 py-2 flex items-center justify-between handle">
+        <input
+          :value="data.content?.title || 'Region'"
+          @input="(e: Event) => updateContent({ ...(data.content || {}), title: (e.target as HTMLInputElement).value })"
+          class="bg-transparent border-b border-white/10 text-xs font-bold uppercase tracking-wider text-gray-200 focus:outline-none focus:border-ue-selected w-full mr-2"
+          placeholder="Region title"
+        />
+        <button @click.stop="deleteBlock" class="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+          <X class="w-4 h-4" />
+        </button>
+      </div>
+      <div class="flex-1 rounded-md bg-black/10"></div>
+    </div>
+
+    <!-- Header (non-region) -->
+    <div v-else :class="['px-3 py-1 flex items-center justify-between text-xs font-bold text-white uppercase tracking-wider handle', headerColor, 'bg-ue-panel border-b border-black']">
       <div class="flex items-center gap-2">
         <component :is="icon" class="w-4 h-4" />
         <span>{{ data.label || 'Block' }}</span>
@@ -354,8 +423,8 @@ function onResizeEnd(event: any) {
       </button>
     </div>
 
-    <!-- Content -->
-    <div class="p-3 flex-1 overflow-auto text-sm text-gray-300 bg-ue-dark/50 nodrag cursor-text">
+    <!-- Content (non-region) -->
+    <div v-if="data.type !== 'region'" class="p-3 flex-1 overflow-auto text-sm text-gray-300 bg-ue-dark/50 nodrag cursor-text">
 
       <!-- Text Block -->
       <div v-if="data.type === 'text'" class="h-full flex flex-col relative group/text">
@@ -537,6 +606,15 @@ function onResizeEnd(event: any) {
             :blueprint="data.content.blueprintString"
             class="w-full h-full min-h-[200px]"
             />
+          <button
+            @click="explainBlueprintWithAI"
+            class="absolute top-2 right-20 bg-black/80 text-white text-xs px-2 py-1 rounded opacity-0 group-hover/bp:opacity-100 transition-opacity flex items-center gap-1"
+            :disabled="isExplainingBlueprint"
+            :title="aiService.isEnabled() ? 'Explain Blueprint with AI' : 'Configure AI in Settings'"
+          >
+            <Sparkles class="w-3 h-3" />
+            {{ isExplainingBlueprint ? 'AI...' : 'AI Explain' }}
+          </button>
             <button
                 @click="updateContent({ blueprintString: '' })"
                 class="absolute top-2 right-2 bg-black/80 text-white text-xs px-2 py-1 rounded opacity-0 group-hover/bp:opacity-100 transition-opacity"

@@ -7,6 +7,7 @@ import { marked } from 'marked';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/atom-one-dark.css';
 import BlueprintVisualizer from '../BlueprintVisualizer.vue';
+import AIHelperView from '../AIHelperView.vue';
 import {
   Bold, Italic, Heading1, Heading2, Heading3, Link, Network,
   Eye, EyeOff, Copy
@@ -176,6 +177,11 @@ function updateMarkdown(e: Event) {
   if (page.value) {
     store.updatePage(page.value.id, { markdownBody: target.value });
   }
+}
+
+function applyAIResult(text: string) {
+  if (!page.value) return;
+  store.updatePage(page.value.id, { markdownBody: text });
 }
 
 // Autocomplete State
@@ -594,6 +600,8 @@ function triggerInsertLink() {
         </button>
 
         <div class="flex-1"></div>
+
+        <AIHelperView :content="page.markdownBody" @apply="applyAIResult" />
 
         <button
           @click="showPreview = !showPreview"

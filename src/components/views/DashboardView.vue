@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useProjectStore } from '../../stores/project';
+import { unrealService } from '../../services/unreal';
 import * as d3 from 'd3';
-import { BarChart2 } from 'lucide-vue-next';
+import { BarChart2, FileText, Wrench } from 'lucide-vue-next';
 
 const store = useProjectStore();
 const chartRef = ref<HTMLElement | null>(null);
+const unrealAssetsRef = unrealService.getAssets();
 
 const topPages = computed(() => {
   if (!store.project) return [];
@@ -17,6 +19,101 @@ const topPages = computed(() => {
 onMounted(() => {
   renderChart();
 });
+
+function extractUnrealRefsFromProject() {
+  const refs = new Set<string>();
+  if (!store.project) return refs;
+
+  const mdRegex = /\[\[([A-Za-z0-9_]+)'([^']+)'\]\]/g;
+
+  for (const page of Object.values(store.project.pages)) {
+    const md = page.markdownBody || '';
+    let match: RegExpExecArray | null;
+    while ((match = mdRegex.exec(md)) !== null) {
+      const assetType = match[1];
+      const inner = match[2];
+      if (assetType && inner) refs.add(`${assetType}'${inner}'`);
+    }
+
+    for (const block of page.blocks || []) {
+      if (block.type === 'asset' && block.content?.reference) {
+        refs.add(String(block.content.reference));
+      }
+    }
+  }
+
+  return refs;
+}
+
+const unrealCoverage = computed(() => {
+  const totalUnrealAssets = unrealAssetsRef.value?.length || 0;
+  const referencedRefs = extractUnrealRefsFromProject();
+
+  const documentedRefs = new Set<string>();
+  if (store.project) {
+    for (const page of Object.values(store.project.pages)) {
+      const ref = page.metadata?.unrealAssetRef;
+      if (ref) documentedRefs.add(ref);
+    }
+  }
+
+  let referencedUndocumented = 0;
+  for (const ref of referencedRefs) {
+    if (!documentedRefs.has(ref)) referencedUndocumented++;
+  }
+
+  return {
+    totalUnrealAssets,
+    referencedCount: referencedRefs.size,
+    documentedCount: documentedRefs.size,
+    referencedUndocumented,
+    hasUnreal: totalUnrealAssets > 0
+  };
+});
+
+async function generateMissingDocsForReferencedAssets() {
+  if (!store.project) return;
+
+  const refs = extractUnrealRefsFromProject();
+  const documentedRefs = new Set<string>();
+  for (const page of Object.values(store.project.pages)) {
+    const ref = page.metadata?.unrealAssetRef;
+    if (ref) documentedRefs.add(ref);
+  }
+
+  const missingRefs = Array.from(refs).filter(r => !documentedRefs.has(r));
+  if (missingRefs.length === 0) {
+    alert('No missing docs for referenced assets.');
+    return;
+  }
+
+  // Default bulk generation to non-AI to avoid high cost / latency.
+  const useAI = confirm(
+    `Generate ${missingRefs.length} missing asset doc page(s).\n\nUse AI generation for the content?` +
+    `\n(Choosing Cancel will still create pages using the template.)`
+  );
+
+  const assets = unrealAssetsRef.value || [];
+  const byRef = new Map<string, any>();
+  for (const asset of assets) {
+    const ref = `${asset.asset_type || 'Asset'}'${asset.path}.${asset.name}'`;
+    byRef.set(ref, asset);
+  }
+
+  let created = 0;
+  for (const ref of missingRefs) {
+    const asset = byRef.get(ref);
+    if (!asset) continue;
+    await store.createOrUpdateDocPageForUnrealAsset(asset, { useAI, openPage: false });
+    created++;
+  }
+
+  alert(`Created/updated ${created} asset doc page(s).`);
+}
+
+function runReferenceHygiene() {
+  store.runReferenceHygieneAutoFix();
+}
 
 function renderChart() {
   if (!chartRef.value || topPages.value.length === 0) return;
@@ -128,6 +225,51 @@ function renderChart() {
               <span class="text-cyber-text/70">Last Updated</span>
               <span class="text-cyber-text font-mono text-xs">Just now</span>
             </div>
+          </div>
+        </div>
+
+        <!-- Unreal Documentation Coverage -->
+        <div class="bg-cyber-panel border border-cyber-green/20 rounded p-6 shadow-[0_0_15px_rgba(0,255,157,0.1)] md:col-span-2">
+          <h3 class="text-cyber-purple font-bold mb-4 uppercase tracking-wider text-sm">Unreal Doc Coverage</h3>
+
+          <div v-if="!unrealCoverage.hasUnreal" class="text-cyber-text/50 italic">
+            Link and scan an Unreal project to see coverage.
+          </div>
+
+          <div v-else class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="bg-cyber-dark/40 border border-cyber-green/10 rounded p-3">
+              <div class="text-[10px] text-cyber-text/60 uppercase">Unreal Assets</div>
+              <div class="text-cyber-green font-bold text-xl">{{ unrealCoverage.totalUnrealAssets }}</div>
+            </div>
+            <div class="bg-cyber-dark/40 border border-cyber-green/10 rounded p-3">
+              <div class="text-[10px] text-cyber-text/60 uppercase">Referenced</div>
+              <div class="text-cyber-green font-bold text-xl">{{ unrealCoverage.referencedCount }}</div>
+            </div>
+            <div class="bg-cyber-dark/40 border border-cyber-green/10 rounded p-3">
+              <div class="text-[10px] text-cyber-text/60 uppercase">Doc Pages</div>
+              <div class="text-cyber-green font-bold text-xl">{{ unrealCoverage.documentedCount }}</div>
+            </div>
+            <div class="bg-cyber-dark/40 border border-cyber-green/10 rounded p-3">
+              <div class="text-[10px] text-cyber-text/60 uppercase">Missing Docs</div>
+              <div class="text-cyber-orange font-bold text-xl">{{ unrealCoverage.referencedUndocumented }}</div>
+            </div>
+          </div>
+
+          <div v-if="unrealCoverage.hasUnreal" class="mt-4 flex flex-wrap gap-2">
+            <button
+              @click="generateMissingDocsForReferencedAssets"
+              class="px-3 py-2 rounded border border-cyber-green/30 text-cyber-green hover:bg-cyber-green/10 transition-all flex items-center gap-2 text-xs font-bold"
+            >
+              <FileText class="w-4 h-4" />
+              GENERATE_MISSING_ASSET_DOCS
+            </button>
+            <button
+              @click="runReferenceHygiene"
+              class="px-3 py-2 rounded border border-cyber-blue/30 text-cyber-blue hover:bg-cyber-blue/10 transition-all flex items-center gap-2 text-xs font-bold"
+            >
+              <Wrench class="w-4 h-4" />
+              REFERENCE_HYGIENE
+            </button>
           </div>
         </div>
       </div>

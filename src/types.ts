@@ -6,7 +6,7 @@ export interface Pin {
 
 export interface Block {
   id: string;
-  type: 'text' | 'steps' | 'media' | 'blueprint' | 'blueprint-modal' | 'link' | 'code' | 'asset' | 'youtube' | 'website';
+  type: 'text' | 'steps' | 'media' | 'blueprint' | 'blueprint-modal' | 'link' | 'code' | 'asset' | 'youtube' | 'website' | 'region';
   content: any;
   x: number;
   y: number;
@@ -111,7 +111,7 @@ export interface DocPage {
   blocks: Block[];
   edges: Edge[];
   markdownBody: string; // For Document View
-  viewMode: 'document' | 'canvas';
+  viewMode: 'document' | 'canvas' | 'board';
   viewCount?: number;
   metadata?: {
     engineVersion?: string;
@@ -119,6 +119,12 @@ export interface DocPage {
     owner?: string;
     createdAt?: string;
     updatedAt?: string;
+
+    // Optional metadata for Unreal asset documentation pages
+    unrealAssetRef?: string;
+    unrealAssetType?: string;
+    unrealAssetPath?: string;
+    unrealAssetFilePath?: string;
   };
 }
 

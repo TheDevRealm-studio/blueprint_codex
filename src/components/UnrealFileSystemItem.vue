@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { ChevronDown, ChevronRight, Folder, File, Box, Image, Layers, FileCode, Network } from 'lucide-vue-next';
+import { ChevronDown, ChevronRight, Folder, File, Box, Image, Layers, FileCode, Network, FileText, Tags, Wrench } from 'lucide-vue-next';
 import { unrealService } from '../services/unreal';
 import { useProjectStore } from '../stores/project';
 
@@ -61,6 +61,46 @@ function openInGraph() {
   store.setViewMode('graph');
 }
 
+async function createOrUpdateDocPage() {
+  try {
+    await store.createOrUpdateDocPageForUnrealAsset(props.node);
+  } finally {
+    showContextMenu.value = false;
+  }
+}
+
+async function autoTagDocPage() {
+  try {
+    const tags = await store.suggestTagsForUnrealAsset(props.node);
+    alert(`Suggested tags:\n\n- ${tags.join('\n- ')}`);
+  } finally {
+    showContextMenu.value = false;
+  }
+}
+
+function scanBrokenRefs() {
+  const res = store.scanBrokenUnrealReferences();
+  if (!res.broken.length) {
+    alert('No broken Unreal references found.');
+    showContextMenu.value = false;
+    return;
+  }
+
+  const sample = res.broken.slice(0, 12)
+    .map(b => `- ${b.pageTitle} (${b.source}): ${b.ref}`)
+    .join('\n');
+
+  alert(`Broken Unreal references: ${res.broken.length}\n\n${sample}${res.broken.length > 12 ? '\n\n...more in console' : ''}`);
+  // Useful for debugging / copy-paste
+  console.table(res.broken);
+  showContextMenu.value = false;
+}
+
+function autoFixBrokenRefs() {
+  store.runReferenceHygieneAutoFix();
+  showContextMenu.value = false;
+}
+
 function handleDragStart(e: DragEvent) {
   if (!isFolder.value && e.dataTransfer) {
     e.dataTransfer.effectAllowed = 'copy';
@@ -105,6 +145,25 @@ function handleDragStart(e: DragEvent) {
             <Network class="w-3 h-3" />
             Open in Graph View
         </button>
+
+      <button v-if="!isFolder" @click="createOrUpdateDocPage" class="w-full text-left px-3 py-1.5 text-xs text-gray-200 hover:bg-white/5 flex items-center gap-2">
+        <FileText class="w-3 h-3" />
+        AI: Create/Update Doc Page
+      </button>
+      <button v-if="!isFolder" @click="autoTagDocPage" class="w-full text-left px-3 py-1.5 text-xs text-gray-200 hover:bg-white/5 flex items-center gap-2">
+        <Tags class="w-3 h-3" />
+        AI: Suggest Tags
+      </button>
+
+      <div class="my-1 border-t border-gray-700"></div>
+      <button v-if="isFolder" @click="scanBrokenRefs" class="w-full text-left px-3 py-1.5 text-xs text-gray-200 hover:bg-white/5 flex items-center gap-2">
+        <Wrench class="w-3 h-3" />
+        Reference Hygiene: Scan
+      </button>
+      <button v-if="isFolder" @click="autoFixBrokenRefs" class="w-full text-left px-3 py-1.5 text-xs text-gray-200 hover:bg-white/5 flex items-center gap-2">
+        <Wrench class="w-3 h-3" />
+        Reference Hygiene: Auto-fix
+      </button>
     </div>
 
     <!-- Children -->
