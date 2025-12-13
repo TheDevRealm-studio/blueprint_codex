@@ -3,12 +3,13 @@ import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import { useProjectStore } from '../../stores/project';
 import { storage } from '../../services/storage';
 import { aiService } from '../../services/ai';
+import { unrealService } from '../../services/unreal';
 import type { Block, LinkBlock, Edge as BlockEdge, YoutubeBlock, WebsiteBlock, MediaBlock } from '../../types';
 import { VueFlow, useVueFlow, type Node, type Edge, type Connection } from '@vue-flow/core';
 import { Background } from '@vue-flow/background';
 import { Controls } from '@vue-flow/controls';
 import CustomNode from '../canvas/nodes/CustomNode.vue';
-import { Type, ListOrdered, Image, Network, Code, Package, Trash2, Unplug, FileText, Sparkles } from 'lucide-vue-next';
+import { Type, ListOrdered, Image, Network, Code, Package, Trash2, Unplug, FileText, Sparkles, Loader2 } from 'lucide-vue-next';
 
 // Import Vue Flow styles
 import '@vue-flow/core/dist/style.css';
@@ -24,6 +25,111 @@ const page = computed(() => store.project?.pages[props.pageId]);
 
 const nodes = ref<Node[]>([]);
 const edges = ref<Edge[]>([]);
+
+const snapToGrid = ref(false);
+const snapGrid: [number, number] = [20, 20];
+
+const selectedNodeIds = computed(() => nodes.value.filter((n: any) => n?.selected).map(n => n.id));
+const selectedCount = computed(() => selectedNodeIds.value.length);
+
+const isGeneratingSystemMap = ref(false);
+const systemMapStage = ref('');
+
+function parseUnrealReference(reference: string): { assetType: string; uePath: string; assetName: string } | null {
+  // Example: Blueprint'/Game/Foo/Bar/BP_Test.BP_Test'
+  const match = reference.match(/^(\w+)'(.*)\.([^']+)'$/);
+  if (!match) return null;
+  return {
+    assetType: match[1] || 'Asset',
+    uePath: match[2] || '',
+    assetName: match[3] || ''
+  };
+}
+
+function resolveUnrealFilePathFromReference(reference: string): string | null {
+  const parsed = parseUnrealReference(reference);
+  if (!parsed?.uePath) return null;
+  const list = unrealService.getAssets().value;
+  const exact = list.find(a => a.path === parsed.uePath && a.name === parsed.assetName);
+  if (exact?.file_path) return exact.file_path;
+  const byPath = list.find(a => a.path === parsed.uePath);
+  if (byPath?.file_path) return byPath.file_path;
+  return null;
+}
+
+function updateBlocksPositions(updated: Array<{ id: string; x: number; y: number }>) {
+  if (!page.value || updated.length === 0) return;
+  const byId = new Map(updated.map(u => [u.id, u] as const));
+  const nextBlocks = page.value.blocks.map((b: Block) => {
+    const u = byId.get(b.id);
+    return u ? ({ ...b, x: u.x, y: u.y } as any) : b;
+  });
+  store.updatePage(page.value.id, { blocks: nextBlocks });
+}
+
+function getSelectedBlocks() {
+  if (!page.value) return [] as Block[];
+  const ids = new Set(selectedNodeIds.value);
+  return page.value.blocks.filter(b => ids.has(b.id));
+}
+
+function alignSelected(mode: 'left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom') {
+  if (!page.value) return;
+  const selected = getSelectedBlocks().filter(b => b.type !== 'region');
+  if (selected.length < 2) return;
+
+  const lefts = selected.map(b => b.x);
+  const rights = selected.map(b => b.x + b.width);
+  const tops = selected.map(b => b.y);
+  const bottoms = selected.map(b => b.y + b.height);
+
+  const minX = Math.min(...lefts);
+  const maxX = Math.max(...rights);
+  const minY = Math.min(...tops);
+  const maxY = Math.max(...bottoms);
+
+  const updated = selected.map(b => {
+    let x = b.x;
+    let y = b.y;
+    if (mode === 'left') x = minX;
+    if (mode === 'right') x = maxX - b.width;
+    if (mode === 'centerX') x = (minX + maxX) / 2 - b.width / 2;
+    if (mode === 'top') y = minY;
+    if (mode === 'bottom') y = maxY - b.height;
+    if (mode === 'centerY') y = (minY + maxY) / 2 - b.height / 2;
+    // Avoid NaNs
+    if (!Number.isFinite(x)) x = b.x;
+    if (!Number.isFinite(y)) y = b.y;
+    return { id: b.id, x, y };
+  });
+
+  updateBlocksPositions(updated);
+}
+
+function distributeSelected(axis: 'x' | 'y') {
+  if (!page.value) return;
+  const selected = getSelectedBlocks().filter(b => b.type !== 'region');
+  if (selected.length < 3) return;
+
+  const sorted = [...selected].sort((a, b) => (axis === 'x' ? a.x - b.x : a.y - b.y));
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+  if (!first || !last) return;
+
+  if (axis === 'x') {
+    const min = first.x;
+    const max = last.x;
+    const step = (max - min) / (sorted.length - 1);
+    const updated = sorted.map((b, i) => ({ id: b.id, x: min + step * i, y: b.y }));
+    updateBlocksPositions(updated);
+  } else {
+    const min = first.y;
+    const max = last.y;
+    const step = (max - min) / (sorted.length - 1);
+    const updated = sorted.map((b, i) => ({ id: b.id, x: b.x, y: min + step * i }));
+    updateBlocksPositions(updated);
+  }
+}
 
 const { onConnect, onNodeDragStop, screenToFlowCoordinate, onNodesChange, onEdgesChange, onNodeContextMenu } = useVueFlow();
 
@@ -237,7 +343,8 @@ watch(() => page.value, (newPage: any) => {
                   height: block.height,
                   label: getBlockLabel(block),
                   pageId: props.pageId,
-                  pins: block.pins
+                  pins: block.pins,
+                  collapsed: block.collapsed
               };
           }
       } else {
@@ -254,7 +361,8 @@ watch(() => page.value, (newPage: any) => {
                   height: block.height,
                   label: getBlockLabel(block),
                   pageId: props.pageId,
-                  pins: block.pins
+                  pins: block.pins,
+                  collapsed: block.collapsed
               },
           });
       }
@@ -428,13 +536,25 @@ async function onDrop(event: DragEvent) {
 
   // 1.5 Handle Internal Assets
   const assetId = event.dataTransfer?.getData('application/x-codex-asset');
+  const assetMetaJson = event.dataTransfer?.getData('application/x-codex-asset-meta') || '';
   if (assetId && page.value) {
       const position = screenToFlowCoordinate({
         x: event.clientX,
         y: event.clientY,
       });
 
-      createMediaBlock(assetId, position.x, position.y);
+      let kind: 'image' | 'video' | undefined;
+      if (assetMetaJson) {
+        try {
+          const meta = JSON.parse(assetMetaJson) as { type?: string };
+          if (meta?.type?.startsWith('video/')) kind = 'video';
+          else if (meta?.type?.startsWith('image/')) kind = 'image';
+        } catch (e) {
+          console.warn('Failed to parse asset meta payload, falling back to default kind', e);
+        }
+      }
+
+      createMediaBlock(assetId, position.x, position.y, kind);
       return;
   }
 
@@ -570,7 +690,14 @@ async function handleDroppedFiles(fileArray: File[], position: { x: number; y: n
   }
 
   // 3. Process uploads in background
-  uploads.forEach(async ({ file, blockId }) => {
+  const concurrency = 3;
+  const queue = [...uploads];
+
+  const worker = async () => {
+    while (queue.length > 0) {
+      const next = queue.shift();
+      if (!next) continue;
+      const { file, blockId } = next;
       try {
           console.log('Starting background upload for:', file.name);
           const asset = await storage.saveAsset(file);
@@ -606,7 +733,10 @@ async function handleDroppedFiles(fileArray: File[], position: { x: number; y: n
       } catch (e) {
           console.error('Failed to upload file in background:', file.name, e);
       }
-  });
+            }
+            };
+
+            void Promise.all(Array.from({ length: concurrency }, () => worker()));
 
   console.log('Optimistic blocks created, uploads running in background');
 }
@@ -709,29 +839,17 @@ async function createWebsiteBlock(url: string, x: number, y: number) {
     }
 }
 
-function createMediaBlock(assetId: string, x: number, y: number) {
+function createMediaBlock(assetId: string, x: number, y: number, kindHint?: 'image' | 'video') {
     if (!page.value) return;
 
-    // We don't have the full asset metadata here synchronously, but we can fetch it or just use the ID.
-    // The MediaDisplay component will handle loading.
-    // We can try to guess the kind if we had the metadata, but for now default to 'image' and let MediaDisplay handle it?
-    // Actually, MediaDisplay needs 'kind' prop.
-    // Let's fetch metadata quickly or just default.
-
-    storage.loadAsset(assetId).then(blob => {
-        let kind: 'image' | 'video' = 'image';
-        if (blob) {
-             if (blob.type.startsWith('video')) kind = 'video';
-        }
-
-        const newBlock: MediaBlock = {
-            id: crypto.randomUUID(),
-            type: 'media',
-            content: { label: 'Asset', filePath: assetId, kind },
-            x, y, width: 300, height: 300
-        };
-        store.updatePage(page.value!.id, { blocks: [...page.value!.blocks, newBlock] });
-    });
+  const kind: 'image' | 'video' = kindHint || 'image';
+  const newBlock: MediaBlock = {
+    id: crypto.randomUUID(),
+    type: 'media',
+    content: { label: 'Asset', filePath: assetId, kind },
+    x, y, width: kind === 'video' ? 400 : 300, height: 300
+  };
+  store.updatePage(page.value.id, { blocks: [...page.value.blocks, newBlock] });
 }
 
 onMounted(() => {
@@ -969,8 +1087,8 @@ async function generateSystemMapFromSelectedNode() {
   }
 
   const seedBlock = page.value.blocks.find(b => b.id === seedNode.id);
-  if (!seedBlock || (seedBlock.type !== 'blueprint' && seedBlock.type !== 'text')) {
-    alert('System Map works with Text or Blueprint nodes.');
+  if (!seedBlock || (seedBlock.type !== 'blueprint' && seedBlock.type !== 'text' && seedBlock.type !== 'asset')) {
+    alert('System Map works with Text, Blueprint, or Asset nodes.');
     return;
   }
 
@@ -979,15 +1097,91 @@ async function generateSystemMapFromSelectedNode() {
     return;
   }
 
-  const goal = prompt('System goal (optional):', '') ?? '';
-  const triggers = prompt('Key events/triggers (optional):', '') ?? '';
-  const constraints = prompt('Constraints / perf concerns (optional):', '') ?? '';
+  if (isGeneratingSystemMap.value) return;
+  isGeneratingSystemMap.value = true;
+  systemMapStage.value = 'Preparing context…';
 
-  const seedText = seedBlock.type === 'text'
-    ? getTextFromBlock(seedBlock)
-    : String(seedBlock.content?.blueprintString || '');
+  try {
+    const goal = prompt('System goal (optional):', '') ?? '';
+    const triggers = prompt('Key events/triggers (optional):', '') ?? '';
+    const constraints = prompt('Constraints / perf concerns (optional):', '') ?? '';
 
-  const promptText = `You are generating a structured Unreal Engine system map from a seed note/blueprint.
+    let promptText = '';
+    let data: any = null;
+
+    if (seedBlock.type === 'asset') {
+      systemMapStage.value = 'Analyzing Unreal asset…';
+      const reference = String((seedBlock as any).content?.reference || '').trim();
+      const filePath = reference ? resolveUnrealFilePathFromReference(reference) : null;
+      const analysis = filePath ? await unrealService.analyzeAsset(filePath) : null;
+      const parsed = reference ? parseUnrealReference(reference) : null;
+      const analysisSymbols: string[] = Array.isArray(analysis?.symbols)
+        ? analysis.symbols.map((s: any) => String(s)).filter(Boolean)
+        : [];
+
+      promptText = `You are generating a structured Unreal Engine asset system map.
+Return ONLY valid JSON. No markdown.
+
+Asset reference:
+${reference}
+
+Parsed reference:
+${JSON.stringify(parsed, null, 2)}
+
+Asset analysis (heuristic; may be null):
+${JSON.stringify(analysis, null, 2)}
+
+User notes:
+- goal: ${goal}
+- triggers: ${triggers}
+- constraints: ${constraints}
+
+Output JSON schema:
+{
+  "title": string,
+  "overview": string,
+  "assetType": string,
+  "engineVersion": string,
+  "keyClasses": string[],
+  "functions": string[],
+  "variables": string[],
+  "components": string[],
+  "dataFlow": string[],
+  "events": string[],
+  "assets": string[],
+  "failurePoints": string[],
+  "todo": string[]
+}
+
+Rules:
+- Do NOT invent functions/variables. Only use names present in analysis.symbols (or leave empty).
+- If analysis is null or symbols are missing: keep functions/variables empty and add TODO items.
+- Keep it practical and concise. No emojis.
+- For assets: use Unreal reference format like Blueprint'/Game/Path/Name.Name' when you can.
+`;
+
+      systemMapStage.value = 'Asking AI…';
+      const res = await aiService.customRequest(promptText, 1600);
+      data = JSON.parse(res.text.trim());
+
+      // Hard safety: never accept hallucinated symbols.
+      if (analysisSymbols.length) {
+        const symbolSet = new Set(analysisSymbols);
+        const safeArray = (value: any) => (Array.isArray(value) ? value.map((v: any) => String(v)).filter(Boolean) : []);
+        data.functions = safeArray(data?.functions).filter((s: string) => symbolSet.has(s));
+        data.variables = safeArray(data?.variables).filter((s: string) => symbolSet.has(s));
+        data.keyClasses = safeArray(data?.keyClasses);
+      } else {
+        data.functions = Array.isArray(data?.functions) ? data.functions : [];
+        data.variables = Array.isArray(data?.variables) ? data.variables : [];
+        data.keyClasses = Array.isArray(data?.keyClasses) ? data.keyClasses : [];
+      }
+    } else {
+      const seedText = seedBlock.type === 'text'
+        ? getTextFromBlock(seedBlock)
+        : String((seedBlock as any).content?.blueprintString || '');
+
+      promptText = `You are generating a structured Unreal Engine system map from a seed note/blueprint.
 Return ONLY valid JSON. No markdown.
 
 Seed type: ${seedBlock.type}
@@ -1014,86 +1208,126 @@ Output JSON schema:
 For assets: use Unreal reference format like Blueprint'/Game/Path/Name.Name' when you can.
 `;
 
-  let data: any = null;
-  try {
-    const res = await aiService.customRequest(promptText, 1400);
-    data = JSON.parse(res.text.trim());
-  } catch (e) {
-    console.error('Failed to generate system map JSON', e);
-    alert('AI returned an invalid system map.');
-    return;
-  }
+      systemMapStage.value = 'Asking AI…';
+      const res = await aiService.customRequest(promptText, 1400);
+      data = JSON.parse(res.text.trim());
+    }
 
-  const title = String(data?.title || 'System Map');
-  const x = (seedBlock.x ?? 100) - 80;
-  const y = (seedBlock.y ?? 100) - 80;
+    systemMapStage.value = 'Building canvas…';
+    const title = String(data?.title || 'System Map');
+    const x = (seedBlock.x ?? 100) - 80;
+    const y = (seedBlock.y ?? 100) - 80;
 
-  const regionId = crypto.randomUUID();
-  const newBlocks: Block[] = [];
+    const regionId = crypto.randomUUID();
+    const newBlocks: Block[] = [];
 
-  newBlocks.push({
-    id: regionId,
-    type: 'region',
-    content: { title },
-    x,
-    y,
-    width: 980,
-    height: 640
-  } as any);
+    newBlocks.push({
+      id: regionId,
+      type: 'region',
+      content: { title },
+      x,
+      y,
+      width: seedBlock.type === 'asset' ? 1100 : 980,
+      height: seedBlock.type === 'asset' ? 760 : 640
+    } as any);
 
-  const mkText = (heading: string, lines: any, dx: number, dy: number, w: number, h: number) => {
-    const arr = Array.isArray(lines) ? lines : [];
-    const body = arr.map((s: any) => `- ${String(s)}`).join('\n');
-    const text = `## ${heading}\n\n${body}`.trim();
+    const mkText = (heading: string, lines: any, dx: number, dy: number, w: number, h: number) => {
+      const arr = Array.isArray(lines) ? lines : [];
+      const body = arr.map((s: any) => `- ${String(s)}`).join('\n');
+      const text = `## ${heading}\n\n${body}`.trim();
+      newBlocks.push({
+        id: crypto.randomUUID(),
+        type: 'text',
+        content: { text, fontSize: 12 },
+        x: x + dx,
+        y: y + dy,
+        width: w,
+        height: h
+      } as any);
+    };
+
+    const overview = String(data?.overview || '').trim();
     newBlocks.push({
       id: crypto.randomUUID(),
       type: 'text',
-      content: { text, fontSize: 12 },
-      x: x + dx,
-      y: y + dy,
-      width: w,
-      height: h
+      content: { text: `## Overview\n\n${overview}`, fontSize: 12 },
+      x: x + 20,
+      y: y + 60,
+      width: 520,
+      height: seedBlock.type === 'asset' ? 180 : 180
     } as any);
-  };
 
-  const overview = String(data?.overview || '').trim();
-  newBlocks.push({
-    id: crypto.randomUUID(),
-    type: 'text',
-    content: { text: `## Overview\n\n${overview}`, fontSize: 12 },
-    x: x + 20,
-    y: y + 60,
-    width: 460,
-    height: 180
-  } as any);
+    if (seedBlock.type === 'asset') {
+      const header = `## Asset\n\n- Type: ${String(data?.assetType || '')}\n- Engine: ${String(data?.engineVersion || '')}`.trim();
+      newBlocks.push({
+        id: crypto.randomUUID(),
+        type: 'text',
+        content: { text: header, fontSize: 12 },
+        x: x + 560,
+        y: y + 60,
+        width: 520,
+        height: 140
+      } as any);
 
-  mkText('Components', data?.components, 20, 260, 460, 240);
-  mkText('Data Flow', data?.dataFlow, 500, 60, 460, 200);
-  mkText('Events', data?.events, 500, 280, 460, 220);
-  mkText('Failure Points', data?.failurePoints, 20, 520, 460, 200);
-  mkText('TODO', data?.todo, 500, 520, 460, 200);
+      mkText('Key Classes', data?.keyClasses, 20, 260, 520, 200);
+      mkText('Functions', data?.functions, 560, 220, 520, 200);
+      mkText('Variables', data?.variables, 560, 440, 520, 200);
+      mkText('Dependencies', data?.assets, 20, 480, 520, 200);
+      mkText('Failure Points', data?.failurePoints, 20, 700, 520, 200);
+      mkText('TODO', data?.todo, 560, 660, 520, 200);
+    } else {
+      mkText('Components', data?.components, 20, 260, 460, 240);
+      mkText('Data Flow', data?.dataFlow, 500, 60, 460, 200);
+      mkText('Events', data?.events, 500, 280, 460, 220);
+      mkText('Failure Points', data?.failurePoints, 20, 520, 460, 200);
+      mkText('TODO', data?.todo, 500, 520, 460, 200);
+    }
 
-  const assets: any[] = Array.isArray(data?.assets) ? data.assets : [];
-  const assetRefs = assets
-    .map(a => String(a).trim())
-    .filter(s => s.includes("'") && s.includes('/Game/') && s.endsWith("'"))
-    .slice(0, 10);
+    const assets: any[] = Array.isArray(data?.assets) ? data.assets : [];
+    const assetRefs = assets
+      .map(a => String(a).trim())
+      .filter(s => s.includes("'") && s.includes('/Game/') && s.endsWith("'"))
+      .slice(0, seedBlock.type === 'asset' ? 14 : 10);
 
-  let ax = x + 20;
-  for (const ref of assetRefs) {
-    newBlocks.push({
-      id: crypto.randomUUID(),
-      type: 'asset',
-      content: { reference: ref },
-      x: ax,
-      y: y + 740,
-      width: 300,
-      height: 120
-    } as any);
-    ax += 320;
+    const newEdges: BlockEdge[] = [];
+    let ax = x + 20;
+    const ay = y + (seedBlock.type === 'asset' ? 920 : 740);
+
+    for (const ref of assetRefs) {
+      const id = crypto.randomUUID();
+      newBlocks.push({
+        id,
+        type: 'asset',
+        content: { reference: ref },
+        x: ax,
+        y: ay,
+        width: 300,
+        height: 120
+      } as any);
+
+      // Add an edge from the seed node to dependencies when seed is asset.
+      if (seedBlock.type === 'asset') {
+        newEdges.push({
+          id: crypto.randomUUID(),
+          source: seedBlock.id,
+          target: id
+        });
+      }
+
+      ax += 320;
+    }
+
+    store.updatePage(page.value.id, {
+      blocks: [...page.value.blocks, ...newBlocks],
+      edges: [...(page.value.edges || []), ...newEdges]
+    });
+  } catch (e) {
+    console.error('Failed to generate system map', e);
+    alert('Failed to generate system map.');
+  } finally {
+    isGeneratingSystemMap.value = false;
+    systemMapStage.value = '';
   }
-
-  store.updatePage(page.value.id, { blocks: [...page.value.blocks, ...newBlocks] });
 }
 
 </script>
@@ -1106,6 +1340,25 @@ For assets: use Unreal reference format like Blueprint'/Game/Path/Name.Name' whe
     @dragenter.prevent="onDragEnter"
     @dragleave.prevent="onDragLeave"
   >
+    <!-- System Map Thinking Overlay -->
+    <div
+      v-if="isGeneratingSystemMap"
+      class="absolute inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center"
+    >
+      <div class="bg-ue-panel border border-ue-accent/40 rounded-lg px-6 py-5 shadow-xl max-w-md w-[92%]">
+        <div class="flex items-center gap-3">
+          <Loader2 class="w-5 h-5 text-ue-accent animate-spin" />
+          <div class="text-sm font-bold text-white uppercase tracking-wider">Thinking…</div>
+        </div>
+        <div class="mt-2 text-xs text-gray-300">
+          {{ systemMapStage || 'Generating System Map' }}
+        </div>
+        <div class="mt-4 h-1 w-full bg-black/30 rounded overflow-hidden">
+          <div class="h-full w-1/2 bg-ue-accent/60 animate-pulse"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- Drag Overlay -->
     <div v-if="isDragging" class="absolute inset-0 z-50 bg-ue-accent/20 border-4 border-ue-accent flex items-center justify-center pointer-events-none">
         <div class="text-white text-2xl font-bold bg-black/80 px-6 py-4 rounded-lg shadow-xl border border-ue-accent backdrop-blur-sm">
@@ -1120,8 +1373,12 @@ For assets: use Unreal reference format like Blueprint'/Game/Path/Name.Name' whe
       :min-zoom="0.1"
       :max-zoom="4"
       :multi-selection-key-code="'Control'"
+      :selection-key-code="['Shift']"
+      :selection-on-drag="true"
       :delete-key-code="['Delete', 'Backspace']"
       :only-render-visible-elements="true"
+      :snap-to-grid="snapToGrid"
+      :snap-grid="snapGrid"
       fit-view-on-init
       class="bg-ue-dark"
     >
@@ -1149,6 +1406,82 @@ For assets: use Unreal reference format like Blueprint'/Game/Path/Name.Name' whe
       <div class="w-px bg-white/10 mx-1"></div>
 
       <button
+        @click="snapToGrid = !snapToGrid"
+        class="flex flex-col items-center justify-center w-16 h-14 rounded transition-colors group"
+        :class="snapToGrid ? 'bg-white/10' : 'hover:bg-white/10'"
+        title="Toggle Snap to Grid"
+      >
+        <span class="w-5 h-5 mb-1 text-gray-300 group-hover:text-white font-bold">#</span>
+        <span class="text-[10px] text-gray-400 uppercase font-bold">Snap</span>
+      </button>
+
+      <div class="w-px bg-white/10 mx-1"></div>
+
+      <div class="flex items-center gap-1 px-1">
+        <button
+          @click="alignSelected('left')"
+          class="w-9 h-10 rounded text-[10px] font-bold text-gray-300 hover:bg-white/10 hover:text-white"
+          :disabled="selectedCount < 2"
+          :class="selectedCount < 2 ? 'opacity-40 cursor-not-allowed' : ''"
+          title="Align Left"
+        >L</button>
+        <button
+          @click="alignSelected('centerX')"
+          class="w-9 h-10 rounded text-[10px] font-bold text-gray-300 hover:bg-white/10 hover:text-white"
+          :disabled="selectedCount < 2"
+          :class="selectedCount < 2 ? 'opacity-40 cursor-not-allowed' : ''"
+          title="Align Center (X)"
+        >C</button>
+        <button
+          @click="alignSelected('right')"
+          class="w-9 h-10 rounded text-[10px] font-bold text-gray-300 hover:bg-white/10 hover:text-white"
+          :disabled="selectedCount < 2"
+          :class="selectedCount < 2 ? 'opacity-40 cursor-not-allowed' : ''"
+          title="Align Right"
+        >R</button>
+        <button
+          @click="alignSelected('top')"
+          class="w-9 h-10 rounded text-[10px] font-bold text-gray-300 hover:bg-white/10 hover:text-white"
+          :disabled="selectedCount < 2"
+          :class="selectedCount < 2 ? 'opacity-40 cursor-not-allowed' : ''"
+          title="Align Top"
+        >T</button>
+        <button
+          @click="alignSelected('centerY')"
+          class="w-9 h-10 rounded text-[10px] font-bold text-gray-300 hover:bg-white/10 hover:text-white"
+          :disabled="selectedCount < 2"
+          :class="selectedCount < 2 ? 'opacity-40 cursor-not-allowed' : ''"
+          title="Align Middle (Y)"
+        >M</button>
+        <button
+          @click="alignSelected('bottom')"
+          class="w-9 h-10 rounded text-[10px] font-bold text-gray-300 hover:bg-white/10 hover:text-white"
+          :disabled="selectedCount < 2"
+          :class="selectedCount < 2 ? 'opacity-40 cursor-not-allowed' : ''"
+          title="Align Bottom"
+        >B</button>
+      </div>
+
+      <div class="flex items-center gap-1 px-1">
+        <button
+          @click="distributeSelected('x')"
+          class="w-12 h-10 rounded text-[10px] font-bold text-gray-300 hover:bg-white/10 hover:text-white"
+          :disabled="selectedCount < 3"
+          :class="selectedCount < 3 ? 'opacity-40 cursor-not-allowed' : ''"
+          title="Distribute Horizontal"
+        >D-X</button>
+        <button
+          @click="distributeSelected('y')"
+          class="w-12 h-10 rounded text-[10px] font-bold text-gray-300 hover:bg-white/10 hover:text-white"
+          :disabled="selectedCount < 3"
+          :class="selectedCount < 3 ? 'opacity-40 cursor-not-allowed' : ''"
+          title="Distribute Vertical"
+        >D-Y</button>
+      </div>
+
+      <div class="w-px bg-white/10 mx-1"></div>
+
+      <button
         @click="createCollectionPageFromCanvas"
         class="flex flex-col items-center justify-center w-16 h-14 rounded hover:bg-white/10 transition-colors group"
         title="Create Collection Page from Canvas"
@@ -1160,9 +1493,15 @@ For assets: use Unreal reference format like Blueprint'/Game/Path/Name.Name' whe
       <button
         @click="generateSystemMapFromSelectedNode"
         class="flex flex-col items-center justify-center w-16 h-14 rounded hover:bg-white/10 transition-colors group"
+        :disabled="isGeneratingSystemMap"
+        :class="isGeneratingSystemMap ? 'opacity-60 cursor-not-allowed' : ''"
         title="Generate System Map from Selected Node"
       >
-        <Sparkles class="w-5 h-5 mb-1 text-gray-300 group-hover:text-white group-hover:scale-110 transition-all" />
+        <component
+          :is="isGeneratingSystemMap ? Loader2 : Sparkles"
+          class="w-5 h-5 mb-1 text-gray-300 group-hover:text-white group-hover:scale-110 transition-all"
+          :class="isGeneratingSystemMap ? 'animate-spin' : ''"
+        />
         <span class="text-[10px] text-gray-400 uppercase font-bold">System</span>
       </button>
     </div>

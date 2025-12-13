@@ -5,6 +5,7 @@ import { computed, ref } from 'vue';
 import MediaDisplay from '../MediaDisplay.vue';
 import BlueprintVisualizer from '../../BlueprintVisualizer.vue';
 import UnrealAssetCard from '../../UnrealAssetCard.vue';
+import AIHelperView from '../../AIHelperView.vue';
 import { useProjectStore } from '../../../stores/project';
 import { unrealService } from '../../../services/unreal';
 import { aiService } from '../../../services/ai';
@@ -13,7 +14,7 @@ import '@vue-flow/node-resizer/dist/style.css';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/atom-one-dark.css';
 import { marked } from 'marked';
-import { Network, Image, ListOrdered, Link, Code, Package, Youtube, Globe, Type, X, Plus, Edit2, Check, Bold, Italic, Heading1, Heading2, List, Sparkles } from 'lucide-vue-next';
+import { Network, Image, ListOrdered, Link, Code, Package, Youtube, Globe, Type, X, Plus, Edit2, Check, Bold, Italic, Heading1, Heading2, Heading3, List, Sparkles, ChevronDown, ChevronUp, Eye, EyeOff, Wand2, Quote } from 'lucide-vue-next';
 
 const props = defineProps<{
   id: string;
@@ -26,6 +27,7 @@ const props = defineProps<{
     selected?: boolean;
     pageId: string;
     pins?: Pin[];
+    collapsed?: boolean;
   };
   selected?: boolean;
 }>();
@@ -34,6 +36,8 @@ const store = useProjectStore();
 const isEditingCode = ref(false);
 const isEditingText = ref(false);
 const isExplainingBlueprint = ref(false);
+const showTextPreview = ref(false);
+const isGeneratingText = ref(false);
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 const assetSearchQuery = ref('');
 const showAssetResults = ref(false);
@@ -129,6 +133,76 @@ function insertMarkdown(prefix: string, suffix: string = '') {
     }, 0);
 }
 
+function replaceSelectionOrAll(replacement: string) {
+  if (!replacement) return;
+
+  // Prefer replacing selection if we have a textarea.
+  if (textareaRef.value && isEditingText.value) {
+    const textarea = textareaRef.value;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = textarea.value;
+    const hasSelection = end > start;
+
+    const nextText = hasSelection
+      ? text.substring(0, start) + replacement + text.substring(end)
+      : replacement;
+
+    updateContent({ text: nextText, fontSize: textFontSize.value });
+    return;
+  }
+
+  updateContent({ text: replacement, fontSize: textFontSize.value });
+}
+
+async function generateTextWithAI() {
+  if (!aiService.isEnabled()) {
+    alert('AI is not configured. Open Settings and add your API key/model.');
+    return;
+  }
+
+  const topic = prompt('AI: What should this text node write about?', '')?.trim() || '';
+  if (!topic) return;
+
+  isGeneratingText.value = true;
+  try {
+    const promptText = `Write a concise Unreal Engine documentation note in Markdown about: "${topic}".
+
+Rules:
+- No emojis.
+- Use short headings and bullet points.
+- If relevant, include: Overview, Key Concepts, Edge Cases, Replication, Performance.
+- If you are unsure, add TODO bullets instead of guessing.
+`;
+
+    const res = await aiService.customRequest(promptText, 700);
+    const output = res.text.trim();
+    if (!output) return;
+
+    // Insert at cursor if editing, else replace all.
+    if (textareaRef.value && isEditingText.value) {
+      const textarea = textareaRef.value;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const text = textarea.value;
+      const nextText = text.substring(0, start) + output + text.substring(end);
+      updateContent({ text: nextText, fontSize: textFontSize.value });
+      setTimeout(() => {
+        textarea.focus();
+        const pos = start + output.length;
+        textarea.setSelectionRange(pos, pos);
+      }, 0);
+    } else {
+      replaceSelectionOrAll(output);
+    }
+  } catch (e) {
+    console.error('AI generate failed', e);
+    alert('AI request failed.');
+  } finally {
+    isGeneratingText.value = false;
+  }
+}
+
 const parsedAsset = computed(() => {
   if (props.data.type !== 'asset' || !props.data.content.reference) return null;
   const ref = props.data.content.reference;
@@ -150,6 +224,13 @@ const parsedAsset = computed(() => {
 
 const extraInputs = computed(() => props.data.pins?.filter(p => p.type === 'target') || []);
 const extraOutputs = computed(() => props.data.pins?.filter(p => p.type === 'source') || []);
+
+const PIN_TOP_START = 70; // px from top of node container
+const PIN_SPACING = 22; // px between pins
+
+function pinTop(index: number) {
+  return `${PIN_TOP_START + index * PIN_SPACING}px`;
+}
 
 function addPin(type: 'source' | 'target') {
     if (props.data.pageId) {
@@ -191,11 +272,39 @@ function removePin(pinId: string) {
                         ...block,
                         pins: currentPins.filter(p => p.id !== pinId)
                     } as any;
-                    store.updatePage(props.data.pageId, { blocks });
+
+          // Remove edges that referenced this handle
+          const currentEdges = page.edges || [];
+          const filteredEdges = currentEdges.filter(e => e.sourceHandle !== pinId && e.targetHandle !== pinId);
+
+          store.updatePage(props.data.pageId, { blocks, edges: filteredEdges });
                 }
             }
         }
     }
+}
+
+function renamePin(pinId: string) {
+  if (!props.data.pageId) return;
+  const page = store.project?.pages[props.data.pageId];
+  if (!page) return;
+
+  const blockIndex = page.blocks.findIndex(b => b.id === props.id);
+  if (blockIndex === -1) return;
+
+  const block = page.blocks[blockIndex];
+  if (!block) return;
+  const pins = block.pins || [];
+  const pin = pins.find(p => p.id === pinId);
+  const currentLabel = pin?.label || '';
+
+  const next = prompt('Pin label:', currentLabel);
+  if (next === null) return;
+
+  const updatedPins = pins.map(p => (p.id === pinId ? { ...p, label: next } : p));
+  const updatedBlocks = [...page.blocks];
+  updatedBlocks[blockIndex] = { ...block, pins: updatedPins } as any;
+  store.updatePage(props.data.pageId, { blocks: updatedBlocks });
 }
 
 function getEmbedUrl(url: string) {
@@ -338,6 +447,22 @@ function onResizeEnd(event: any) {
         }
     }
 }
+
+function toggleCollapsed() {
+  if (!props.data.pageId) return;
+  const page = store.project?.pages[props.data.pageId];
+  if (!page) return;
+
+  const blocks = [...page.blocks];
+  const idx = blocks.findIndex(b => b.id === props.id);
+  if (idx === -1) return;
+
+  const block = blocks[idx];
+  if (!block) return;
+
+  blocks[idx] = { ...block, collapsed: !Boolean((block as any).collapsed) } as any;
+  store.updatePage(props.data.pageId, { blocks });
+}
 </script>
 
 <template>
@@ -364,15 +489,31 @@ function onResizeEnd(event: any) {
 
     <!-- Extra Inputs -->
     <div v-if="data.type !== 'region'" class="absolute left-0 top-10 bottom-0 flex flex-col gap-4 py-2 pointer-events-none z-50">
-        <div v-for="pin in extraInputs" :key="pin.id" class="relative pointer-events-auto group/pin">
-            <Handle :id="pin.id" type="target" :position="Position.Left" class="!bg-ue-accent !w-3 !h-3 !border !border-white" />
-            <!-- Pin Label/Delete -->
-            <div class="absolute left-4 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover/pin:opacity-100 transition-opacity bg-black/90 px-1 rounded border border-gray-700">
-                <button @click.stop="removePin(pin.id)" class="text-red-500 hover:text-red-400 text-[10px] font-bold px-1">
-                    <X class="w-3 h-3" />
-                </button>
-            </div>
+      <div v-for="(pin, i) in extraInputs" :key="pin.id" class="relative pointer-events-auto group/pin">
+        <Handle
+          :id="pin.id"
+          type="target"
+          :position="Position.Left"
+          class="!bg-ue-accent !w-3 !h-3 !border !border-white"
+          :style="{ top: pinTop(i) }"
+        />
+        <!-- Pin Label/Delete -->
+        <div class="absolute left-4" :style="{ top: pinTop(i) }">
+          <div class="-translate-y-1/2 flex items-center gap-1 opacity-0 group-hover/pin:opacity-100 transition-opacity bg-black/90 px-1.5 py-0.5 rounded border border-gray-700">
+            <button
+            @click.stop="renamePin(pin.id)"
+            class="text-gray-200 hover:text-white text-[10px] font-bold px-1"
+            :title="pin.label || 'Rename pin'"
+            >
+            <Edit2 class="w-3 h-3" />
+            </button>
+            <span class="text-[10px] text-gray-200 max-w-[120px] truncate" :title="pin.label || ''">{{ pin.label || 'Pin' }}</span>
+            <button @click.stop="removePin(pin.id)" class="text-red-500 hover:text-red-400 text-[10px] font-bold px-1" title="Remove pin">
+              <X class="w-3 h-3" />
+            </button>
+          </div>
         </div>
+      </div>
         <!-- Add Input Button -->
         <button @click.stop="addPin('target')" class="pointer-events-auto ml-[-8px] mt-2 w-4 h-4 rounded-full bg-gray-700 hover:bg-green-500 text-white flex items-center justify-center text-[10px] shadow border border-black transition-colors" title="Add Input Pin">
             <Plus class="w-3 h-3" />
@@ -381,15 +522,31 @@ function onResizeEnd(event: any) {
 
     <!-- Extra Outputs -->
     <div v-if="data.type !== 'region'" class="absolute right-0 top-10 bottom-0 flex flex-col gap-4 py-2 items-end pointer-events-none z-50">
-        <div v-for="pin in extraOutputs" :key="pin.id" class="relative pointer-events-auto group/pin">
-            <Handle :id="pin.id" type="source" :position="Position.Right" class="!bg-ue-accent !w-3 !h-3 !border !border-white" />
-             <!-- Pin Label/Delete -->
-            <div class="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover/pin:opacity-100 transition-opacity bg-black/90 px-1 rounded border border-gray-700">
-                <button @click.stop="removePin(pin.id)" class="text-red-500 hover:text-red-400 text-[10px] font-bold px-1">
-                    <X class="w-3 h-3" />
-                </button>
-            </div>
+      <div v-for="(pin, i) in extraOutputs" :key="pin.id" class="relative pointer-events-auto group/pin">
+        <Handle
+          :id="pin.id"
+          type="source"
+          :position="Position.Right"
+          class="!bg-ue-accent !w-3 !h-3 !border !border-white"
+          :style="{ top: pinTop(i) }"
+        />
+         <!-- Pin Label/Delete -->
+        <div class="absolute right-4" :style="{ top: pinTop(i) }">
+          <div class="-translate-y-1/2 flex items-center gap-1 opacity-0 group-hover/pin:opacity-100 transition-opacity bg-black/90 px-1.5 py-0.5 rounded border border-gray-700">
+            <button
+            @click.stop="renamePin(pin.id)"
+            class="text-gray-200 hover:text-white text-[10px] font-bold px-1"
+            :title="pin.label || 'Rename pin'"
+            >
+            <Edit2 class="w-3 h-3" />
+            </button>
+            <span class="text-[10px] text-gray-200 max-w-[120px] truncate" :title="pin.label || ''">{{ pin.label || 'Pin' }}</span>
+            <button @click.stop="removePin(pin.id)" class="text-red-500 hover:text-red-400 text-[10px] font-bold px-1" title="Remove pin">
+              <X class="w-3 h-3" />
+            </button>
+          </div>
         </div>
+      </div>
         <!-- Add Output Button -->
         <button @click.stop="addPin('source')" class="pointer-events-auto mr-[-8px] mt-2 w-4 h-4 rounded-full bg-gray-700 hover:bg-green-500 text-white flex items-center justify-center text-[10px] shadow border border-black transition-colors" title="Add Output Pin">
             <Plus class="w-3 h-3" />
@@ -418,13 +575,28 @@ function onResizeEnd(event: any) {
         <component :is="icon" class="w-4 h-4" />
         <span>{{ data.label || 'Block' }}</span>
       </div>
-      <button @click.stop="deleteBlock" class="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
-        <X class="w-4 h-4" />
-      </button>
+      <div class="flex items-center gap-2">
+        <button
+          @click.stop="toggleCollapsed"
+          class="text-gray-300 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
+          :title="data.collapsed ? 'Expand' : 'Collapse'"
+        >
+          <component :is="data.collapsed ? ChevronDown : ChevronUp" class="w-4 h-4" />
+        </button>
+        <button @click.stop="deleteBlock" class="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" title="Delete block">
+          <X class="w-4 h-4" />
+        </button>
+      </div>
     </div>
 
     <!-- Content (non-region) -->
     <div v-if="data.type !== 'region'" class="p-3 flex-1 overflow-auto text-sm text-gray-300 bg-ue-dark/50 nodrag cursor-text">
+
+      <div v-if="data.collapsed" class="h-full flex items-center justify-center text-xs text-gray-500 select-none">
+        (collapsed)
+      </div>
+
+      <template v-else>
 
       <!-- Text Block -->
       <div v-if="data.type === 'text'" class="h-full flex flex-col relative group/text">
@@ -463,12 +635,50 @@ function onResizeEnd(event: any) {
                     <button @click="insertMarkdown('## ')" class="p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white" title="Heading 2">
                         <Heading2 class="w-3 h-3" />
                     </button>
+              <button @click="insertMarkdown('### ')" class="p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white" title="Heading 3">
+                <Heading3 class="w-3 h-3" />
+              </button>
                     <button @click="insertMarkdown('- ')" class="p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white" title="List">
                         <List class="w-3 h-3" />
                     </button>
+              <button @click="insertMarkdown('- [ ] ')" class="p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white" title="Task">
+                <ListOrdered class="w-3 h-3" />
+              </button>
+              <button @click="insertMarkdown('> ')" class="p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white" title="Quote">
+                <Quote class="w-3 h-3" />
+              </button>
+              <button @click="insertMarkdown('[[', ']]')" class="p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white" title="Wiki Link">
+                <Link class="w-3 h-3" />
+              </button>
+              <button @click="insertMarkdown('```\n', '\n```')" class="p-1 hover:bg-white/10 rounded text-gray-400 hover:text-white" title="Code Block">
+                <Code class="w-3 h-3" />
+              </button>
                 </div>
 
                 <div class="flex items-center gap-2">
+              <button
+                @click="showTextPreview = !showTextPreview"
+                class="p-1 rounded text-gray-400 hover:text-white hover:bg-white/10"
+                :title="showTextPreview ? 'Hide Preview' : 'Show Preview'"
+              >
+                <component :is="showTextPreview ? EyeOff : Eye" class="w-3 h-3" />
+              </button>
+
+              <button
+                @click="generateTextWithAI"
+                class="p-1 rounded text-purple-300 hover:text-white hover:bg-purple-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                :disabled="isGeneratingText || !aiService.isEnabled()"
+                :title="aiService.isEnabled() ? 'AI Generate (insert at cursor)' : 'Configure AI in Settings'"
+              >
+                <Wand2 class="w-3 h-3" />
+              </button>
+
+              <AIHelperView
+                :content="textContent"
+                @apply="replaceSelectionOrAll"
+                class="!px-0"
+              />
+
                     <input
                         type="number"
                         :value="textFontSize"
@@ -483,15 +693,27 @@ function onResizeEnd(event: any) {
                     </button>
                 </div>
             </div>
+          <div class="flex-1 flex flex-col gap-2">
             <textarea
-                ref="textareaRef"
-                :value="textContent"
-                @input="(e: Event) => updateContent({ text: (e.target as HTMLTextAreaElement).value, fontSize: textFontSize })"
-                class="w-full flex-1 bg-black/20 border border-gray-700 rounded p-2 resize-none focus:outline-none text-gray-300 font-mono text-xs"
-                :style="{ fontSize: `${textFontSize}px`, lineHeight: '1.4' }"
-                placeholder="Type Markdown here..."
-                @keydown.esc="isEditingText = false"
+              ref="textareaRef"
+              :value="textContent"
+              @input="(e: Event) => updateContent({ text: (e.target as HTMLTextAreaElement).value, fontSize: textFontSize })"
+              class="w-full flex-1 bg-black/20 border border-gray-700 rounded p-2 resize-none focus:outline-none text-gray-300 font-mono text-xs"
+              :style="{ fontSize: `${textFontSize}px`, lineHeight: '1.4' }"
+              placeholder="Type Markdown here..."
+              spellcheck="true"
+              @keydown.esc="isEditingText = false"
             ></textarea>
+
+            <div v-if="showTextPreview" class="bg-black/20 border border-gray-700 rounded p-2">
+            <div class="text-[10px] text-gray-500 mb-1 uppercase font-bold">Preview</div>
+            <div
+              class="prose prose-invert prose-sm max-w-none overflow-auto custom-scrollbar"
+              :style="{ fontSize: `${textFontSize}px` }"
+              v-html="renderedMarkdown"
+            ></div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -747,6 +969,8 @@ function onResizeEnd(event: any) {
             </div>
         </div>
       </div>
+
+      </template>
 
     </div>
   </div>

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch, onUnmounted } from 'vue';
 import { useProjectStore } from '../../stores/project';
 import { storage } from '../../services/storage';
 import { unrealService } from '../../services/unreal';
+import { acquireAssetObjectUrl, releaseAssetObjectUrl } from '../../services/storage/objectUrlCache';
 import { marked } from 'marked';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/atom-one-dark.css';
@@ -57,21 +58,42 @@ function setAnnotationsForKey(key: string, markers: MediaMarker[]) {
 // Asset Resolution for Preview
 const resolvedAssets = ref<Record<string, string>>({});
 
+const resolvedAssetIds = ref<Set<string>>(new Set());
+
 async function resolveAsset(assetId: string) {
     if (resolvedAssets.value[assetId]) return resolvedAssets.value[assetId];
 
     try {
-        const blob = await storage.loadAsset(assetId);
-        if (blob) {
-            const url = URL.createObjectURL(blob);
-            resolvedAssets.value[assetId] = url;
-            return url;
+        resolvedAssetIds.value.add(assetId);
+        const url = await acquireAssetObjectUrl(assetId, storage.loadAsset.bind(storage));
+        if (url) {
+          resolvedAssets.value[assetId] = url;
+          return url;
         }
     } catch (e) {
         console.error('Failed to resolve asset for preview', assetId);
     }
     return '';
 }
+
+function releaseAllResolvedAssets() {
+  for (const assetId of resolvedAssetIds.value) {
+    releaseAssetObjectUrl(assetId);
+  }
+  resolvedAssetIds.value = new Set();
+  resolvedAssets.value = {};
+}
+
+watch(
+  () => props.pageId,
+  () => {
+    releaseAllResolvedAssets();
+  }
+);
+
+onUnmounted(() => {
+  releaseAllResolvedAssets();
+});
 
 interface ContentSegment {
   type: 'text' | 'blueprint';

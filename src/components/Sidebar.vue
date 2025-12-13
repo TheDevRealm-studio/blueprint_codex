@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { useProjectStore } from '../stores/project';
 import { storeToRefs } from 'pinia';
-import { computed, ref, onMounted } from 'vue';
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
 import FileSystemItem from './FileSystemItem.vue';
 import UnrealContentBrowser from './UnrealContentBrowser.vue';
 import InputModal from './InputModal.vue';
 import SettingsModal from './SettingsModal.vue';
 import type { FileSystemNode, Asset } from '../types';
 import { storage } from '../services/storage';
+import { acquireAssetObjectUrl, releaseAssetObjectUrl } from '../services/storage/objectUrlCache';
 import {
   Settings, Search, Image, Video, File, FolderPlus, FilePlus,
   RefreshCw, X, Download, Upload, Link, ChevronDown, Plus
@@ -32,17 +33,33 @@ const filteredAssets = computed(() => {
 
 async function loadAssets() {
   try {
+    const previousPreviewIds = new Set(Object.keys(assetPreviews.value));
     assets.value = await storage.listAssets();
-    // Load previews for images
-    for (const asset of assets.value) {
-        if (asset.type.startsWith('image/') && !assetPreviews.value[asset.id]) {
-            storage.loadAsset(asset.id).then(blob => {
-                if (blob) {
-                    assetPreviews.value[asset.id] = URL.createObjectURL(blob);
-                }
-            });
-        }
+
+    // Release previews for assets that no longer exist
+    for (const oldId of previousPreviewIds) {
+      if (!assets.value.some(a => a.id === oldId)) {
+        releaseAssetObjectUrl(oldId);
+        delete assetPreviews.value[oldId];
+      }
     }
+
+    // Load previews for images
+    const queue = assets.value.filter(a => a.type.startsWith('image/') && !assetPreviews.value[a.id]);
+    const concurrency = 4;
+    const worker = async () => {
+      while (queue.length > 0) {
+        const next = queue.shift();
+        if (!next) continue;
+        try {
+          const url = await acquireAssetObjectUrl(next.id, storage.loadAsset.bind(storage));
+          if (url) assetPreviews.value[next.id] = url;
+        } catch (e) {
+          console.warn('Failed to load asset preview', next.id, e);
+        }
+      }
+    };
+    void Promise.all(Array.from({ length: concurrency }, () => worker()));
   } catch (e) {
     console.error('Failed to load assets in sidebar', e);
   }
@@ -51,6 +68,7 @@ async function loadAssets() {
 function onDragStartAsset(e: DragEvent, asset: Asset) {
     if (e.dataTransfer) {
         e.dataTransfer.setData('application/x-codex-asset', asset.id);
+        e.dataTransfer.setData('application/x-codex-asset-meta', JSON.stringify({ id: asset.id, type: asset.type, name: asset.name }));
         e.dataTransfer.effectAllowed = 'copy';
     }
 }
@@ -71,6 +89,13 @@ function renameAsset(asset: Asset) {
 
 onMounted(() => {
     loadAssets();
+});
+
+onBeforeUnmount(() => {
+  for (const assetId of Object.keys(assetPreviews.value)) {
+    releaseAssetObjectUrl(assetId);
+  }
+  assetPreviews.value = {};
 });
 
 // Modal State

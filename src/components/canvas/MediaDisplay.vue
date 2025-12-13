@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from 'vue';
 import { storage } from '../../services/storage';
+import { acquireAssetObjectUrl, releaseAssetObjectUrl } from '../../services/storage/objectUrlCache';
 
 const props = defineProps<{
   src: string;
@@ -12,8 +13,18 @@ const resolvedUrl = ref<string>('');
 const loading = ref(false);
 const error = ref<string | null>(null);
 
+const currentAssetId = ref<string>('');
+const shouldRevokeResolvedUrl = ref(false);
+
 async function loadMedia() {
   if (!props.src) return;
+
+  // Release any previous asset URL from the cache
+  if (currentAssetId.value && currentAssetId.value !== props.src) {
+    releaseAssetObjectUrl(currentAssetId.value);
+    currentAssetId.value = '';
+  }
+  shouldRevokeResolvedUrl.value = false;
 
   // If it's already a blob URL or http URL, just use it
   if (props.src.startsWith('blob:') || props.src.startsWith('http') || props.src.startsWith('data:')) {
@@ -25,14 +36,12 @@ async function loadMedia() {
   loading.value = true;
   error.value = null;
   try {
-    const blob = await storage.loadAsset(props.src);
-    if (blob) {
-      if (resolvedUrl.value && resolvedUrl.value.startsWith('blob:')) {
-        URL.revokeObjectURL(resolvedUrl.value);
-      }
-      resolvedUrl.value = URL.createObjectURL(blob);
-    } else {
+    currentAssetId.value = props.src;
+    const url = await acquireAssetObjectUrl(props.src, storage.loadAsset.bind(storage));
+    if (!url) {
       error.value = 'File not found';
+    } else {
+      resolvedUrl.value = url;
     }
 
     // Try to load metadata for name if not provided
@@ -60,7 +69,11 @@ watch(() => props.src, loadMedia);
 onMounted(loadMedia);
 
 onUnmounted(() => {
-  if (resolvedUrl.value && resolvedUrl.value.startsWith('blob:')) {
+  if (currentAssetId.value) {
+    releaseAssetObjectUrl(currentAssetId.value);
+    currentAssetId.value = '';
+  }
+  if (shouldRevokeResolvedUrl.value && resolvedUrl.value && resolvedUrl.value.startsWith('blob:')) {
     URL.revokeObjectURL(resolvedUrl.value);
   }
 });
@@ -78,12 +91,15 @@ onUnmounted(() => {
           :src="resolvedUrl"
           class="max-w-full max-h-full object-contain"
           draggable="false"
+          loading="lazy"
+          decoding="async"
         />
         <video
           v-else
           :src="resolvedUrl"
           controls
           class="w-full h-full"
+          preload="metadata"
         ></video>
       </template>
       <div v-else class="text-gray-600 text-xs">No media source</div>

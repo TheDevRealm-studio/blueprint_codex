@@ -13,6 +13,7 @@ export interface Block {
   width: number;
   height: number;
   pins?: Pin[];
+  collapsed?: boolean;
 }
 
 export interface YoutubeBlock extends Block {

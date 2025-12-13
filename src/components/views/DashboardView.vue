@@ -2,8 +2,9 @@
 import { computed, onMounted, ref } from 'vue';
 import { useProjectStore } from '../../stores/project';
 import { unrealService } from '../../services/unreal';
+import { aiService } from '../../services/ai';
 import * as d3 from 'd3';
-import { BarChart2, FileText, Wrench } from 'lucide-vue-next';
+import { BarChart2, FileText, Wrench, Sparkles } from 'lucide-vue-next';
 
 const store = useProjectStore();
 const chartRef = ref<HTMLElement | null>(null);
@@ -70,6 +71,154 @@ const unrealCoverage = computed(() => {
     hasUnreal: totalUnrealAssets > 0
   };
 });
+
+type DocsCoverageKey = 'overview' | 'diagrams' | 'failureModes' | 'replication' | 'performance';
+
+type PageCoverage = {
+  pageId: string;
+  title: string;
+  category: string;
+  tags: string[];
+  score: number;
+  percent: number;
+  flags: Record<DocsCoverageKey, boolean>;
+  missing: DocsCoverageKey[];
+};
+
+function hasAnyHeading(md: string, headings: string[]): boolean {
+  for (const h of headings) {
+    const re = new RegExp(`^#{1,6}\\s*${h}\\b`, 'im');
+    if (re.test(md)) return true;
+  }
+  return false;
+}
+
+function analyzeDocsCoverageForMarkdown(mdRaw: string): Record<DocsCoverageKey, boolean> {
+  const md = String(mdRaw || '');
+
+  const overview = hasAnyHeading(md, ['Overview', 'Summary', 'Purpose']);
+
+  const diagrams =
+    /```\s*blueprint\b/i.test(md) ||
+    /!\[[^\]]*\]\([^\)]+\)/.test(md) ||
+    /<video\b[^>]*>/i.test(md);
+
+  const failureModes = hasAnyHeading(md, ['Failure Modes', 'Failure', 'Edge Cases', 'Troubleshooting', 'Common Issues', 'Bugs']);
+
+  const replication = hasAnyHeading(md, ['Replication', 'Networking', 'Network', 'Multiplayer', 'Authority', 'Server/Client', 'Client/Server']);
+
+  const performance = hasAnyHeading(md, ['Performance', 'Optimization', 'Perf', 'Tick', 'Profiling']);
+
+  return { overview, diagrams, failureModes, replication, performance };
+}
+
+const docsCoverage = computed<PageCoverage[]>(() => {
+  if (!store.project) return [];
+  const pages = Object.values(store.project.pages);
+  return pages.map(p => {
+    const flags = analyzeDocsCoverageForMarkdown(p.markdownBody || '');
+    const missing = (Object.keys(flags) as DocsCoverageKey[]).filter(k => !flags[k]);
+    const score = 5 - missing.length;
+    const percent = Math.round((score / 5) * 100);
+    return {
+      pageId: p.id,
+      title: p.title,
+      category: p.category,
+      tags: p.tags || [],
+      flags,
+      missing,
+      score,
+      percent
+    };
+  }).sort((a, b) => a.percent - b.percent || a.title.localeCompare(b.title));
+});
+
+const docsCoverageSummary = computed(() => {
+  const pages = docsCoverage.value;
+  const total = pages.length;
+  const avg = total ? Math.round(pages.reduce((acc, p) => acc + p.percent, 0) / total) : 0;
+
+  const missingCounts: Record<DocsCoverageKey, number> = {
+    overview: 0,
+    diagrams: 0,
+    failureModes: 0,
+    replication: 0,
+    performance: 0
+  };
+
+  for (const p of pages) {
+    for (const k of p.missing) missingCounts[k] += 1;
+  }
+
+  const worst = pages.slice(0, 10);
+  return { total, avg, missingCounts, worst };
+});
+
+function openPage(pageId: string) {
+  store.setActivePage(pageId);
+}
+
+async function aiFillMissingSections(pageId: string) {
+  if (!store.project) return;
+  const page = store.project.pages[pageId];
+  if (!page) return;
+  if (!aiService.isEnabled()) {
+    alert('AI is not configured. Open Settings and add your API key/model.');
+    return;
+  }
+
+  const coverage = docsCoverage.value.find(p => p.pageId === pageId);
+  if (!coverage || coverage.missing.length === 0) {
+    alert('This page already meets the coverage checklist.');
+    return;
+  }
+
+  const ok = confirm(
+    `AI will append the following missing sections to "${page.title}":\n\n- ${coverage.missing.join('\n- ')}\n\nContinue?`
+  );
+  if (!ok) return;
+
+  const missingList = coverage.missing
+    .map(k => {
+      if (k === 'overview') return 'Overview';
+      if (k === 'diagrams') return 'Diagrams';
+      if (k === 'failureModes') return 'Failure Modes';
+      if (k === 'replication') return 'Replication';
+      return 'Performance';
+    })
+    .join(', ');
+
+  const promptText = `You are improving an Unreal Engine project documentation page.
+Task: Append ONLY the missing sections to the end of the page.
+
+Rules:
+- Do not rewrite or remove any existing text.
+- Add only new sections at the end using Markdown headings.
+- Keep ALL wiki-links exactly as-is if you mention them (like [[Blueprint'/Game/...']]).
+- No emojis.
+- If you do not know something, add a short TODO bullet instead of guessing.
+
+Missing sections to add: ${missingList}
+
+Existing Markdown:
+${page.markdownBody}
+`;
+
+  try {
+    const res = await aiService.customRequest(promptText, 900);
+    const appended = res.text.trim();
+    if (!appended) return;
+
+    // If the model echoed the whole page, keep only the tail by best-effort heuristic.
+    // Prefer safe behavior: append whatever it returned.
+    const next = `${page.markdownBody.trim()}\n\n${appended}\n`;
+    store.updatePage(page.id, { markdownBody: next });
+    alert('Appended missing sections.');
+  } catch (e) {
+    console.error('AI fill missing sections failed', e);
+    alert('AI request failed.');
+  }
+}
 
 async function generateMissingDocsForReferencedAssets() {
   if (!store.project) return;
@@ -270,6 +419,82 @@ function renderChart() {
               <Wrench class="w-4 h-4" />
               REFERENCE_HYGIENE
             </button>
+          </div>
+        </div>
+
+        <!-- Docs Coverage -->
+        <div class="bg-cyber-panel border border-cyber-green/20 rounded p-6 shadow-[0_0_15px_rgba(0,255,157,0.1)] md:col-span-2">
+          <h3 class="text-cyber-purple font-bold mb-4 uppercase tracking-wider text-sm">Docs Coverage</h3>
+
+          <div v-if="docsCoverageSummary.total === 0" class="text-cyber-text/50 italic">
+            No pages yet.
+          </div>
+
+          <div v-else>
+            <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
+              <div class="bg-cyber-dark/40 border border-cyber-green/10 rounded p-3 md:col-span-2">
+                <div class="text-[10px] text-cyber-text/60 uppercase">Average Coverage</div>
+                <div class="text-cyber-green font-bold text-xl">{{ docsCoverageSummary.avg }}%</div>
+                <div class="text-[10px] text-cyber-text/50">{{ docsCoverageSummary.total }} pages</div>
+              </div>
+              <div class="bg-cyber-dark/40 border border-cyber-green/10 rounded p-3">
+                <div class="text-[10px] text-cyber-text/60 uppercase">Missing Overview</div>
+                <div class="text-cyber-orange font-bold text-xl">{{ docsCoverageSummary.missingCounts.overview }}</div>
+              </div>
+              <div class="bg-cyber-dark/40 border border-cyber-green/10 rounded p-3">
+                <div class="text-[10px] text-cyber-text/60 uppercase">Missing Diagrams</div>
+                <div class="text-cyber-orange font-bold text-xl">{{ docsCoverageSummary.missingCounts.diagrams }}</div>
+              </div>
+              <div class="bg-cyber-dark/40 border border-cyber-green/10 rounded p-3">
+                <div class="text-[10px] text-cyber-text/60 uppercase">Missing Failure</div>
+                <div class="text-cyber-orange font-bold text-xl">{{ docsCoverageSummary.missingCounts.failureModes }}</div>
+              </div>
+              <div class="bg-cyber-dark/40 border border-cyber-green/10 rounded p-3">
+                <div class="text-[10px] text-cyber-text/60 uppercase">Missing Replication</div>
+                <div class="text-cyber-orange font-bold text-xl">{{ docsCoverageSummary.missingCounts.replication }}</div>
+              </div>
+              <div class="bg-cyber-dark/40 border border-cyber-green/10 rounded p-3">
+                <div class="text-[10px] text-cyber-text/60 uppercase">Missing Performance</div>
+                <div class="text-cyber-orange font-bold text-xl">{{ docsCoverageSummary.missingCounts.performance }}</div>
+              </div>
+            </div>
+
+            <div class="mt-4">
+              <div class="text-[11px] text-cyber-text/60 uppercase mb-2">Lowest Coverage Pages</div>
+              <div class="space-y-2">
+                <div
+                  v-for="p in docsCoverageSummary.worst"
+                  :key="p.pageId"
+                  class="flex items-center justify-between bg-cyber-dark/30 border border-cyber-green/10 rounded px-3 py-2"
+                >
+                  <div class="min-w-0">
+                    <button
+                      class="text-cyber-green hover:underline font-mono text-sm truncate"
+                      @click="openPage(p.pageId)"
+                      :title="p.title"
+                    >
+                      {{ p.title }}
+                    </button>
+                    <div class="text-[10px] text-cyber-text/50 truncate">
+                      Missing: {{ p.missing.join(', ') }}
+                    </div>
+                  </div>
+
+                  <div class="flex items-center gap-2 flex-shrink-0">
+                    <div class="text-cyber-orange font-bold text-xs w-10 text-right">{{ p.percent }}%</div>
+                    <button
+                      v-if="aiService.isEnabled() && p.missing.length > 0"
+                      @click="aiFillMissingSections(p.pageId)"
+                      class="px-2 py-1 rounded border border-cyber-purple/30 text-cyber-purple hover:bg-cyber-purple/10 transition-all flex items-center gap-1 text-[10px] font-bold"
+                      title="AI append missing sections"
+                    >
+                      <Sparkles class="w-3 h-3" />
+                      AI FIX
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
