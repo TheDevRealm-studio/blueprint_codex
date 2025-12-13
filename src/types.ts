@@ -125,6 +125,16 @@ export interface DocPage {
     unrealAssetType?: string;
     unrealAssetPath?: string;
     unrealAssetFilePath?: string;
+
+    // Optional media annotations for DocumentView preview (keyed by assetId or URL)
+    mediaAnnotations?: Record<string, {
+      markers: Array<{
+        id: string;
+        x: number; // normalized 0..1
+        y: number; // normalized 0..1
+        text: string;
+      }>;
+    }>;
   };
 }
 

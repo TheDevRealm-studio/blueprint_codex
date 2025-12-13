@@ -19,6 +19,41 @@ const showPreview = ref(true);
 
 const page = computed(() => store.project?.pages[props.pageId]);
 
+type MediaMarker = { id: string; x: number; y: number; text: string };
+
+function escapeHtml(input: string) {
+  return input
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function getAnnotationsForKey(key: string): MediaMarker[] {
+  const meta: any = page.value?.metadata || {};
+  const annotations = meta.mediaAnnotations || {};
+  const entry = annotations[key];
+  return Array.isArray(entry?.markers) ? entry.markers : [];
+}
+
+function setAnnotationsForKey(key: string, markers: MediaMarker[]) {
+  if (!page.value) return;
+  const currentMeta: any = page.value.metadata || {};
+  const currentAnnotations: any = currentMeta.mediaAnnotations || {};
+
+  store.updatePage(page.value.id, {
+    metadata: {
+      ...currentMeta,
+      updatedAt: new Date().toISOString(),
+      mediaAnnotations: {
+        ...currentAnnotations,
+        [key]: { markers }
+      }
+    }
+  } as any);
+}
+
 // Asset Resolution for Preview
 const resolvedAssets = ref<Record<string, string>>({});
 
@@ -102,23 +137,102 @@ function renderMarkdown(text: string) {
           // Let's assume image for standard markdown image syntax, unless we use a custom syntax for video.
           // OR, we can check the blob type in resolveAsset and store it.
 
-          return `<img src="${resolved}" alt="${text}" title="${title || ''}" class="max-w-full rounded border border-cyber-green/20" />`;
+          const key = `asset:${href}`;
+          const markers = getAnnotationsForKey(key);
+          const markerHtml = markers.map((m, i) => {
+            const left = Math.max(0, Math.min(100, m.x * 100));
+            const top = Math.max(0, Math.min(100, m.y * 100));
+            return `<a class="codex-marker" data-codex-marker-id="${m.id}" href="#codex-callout-${m.id}" style="left:${left}%;top:${top}%;">${i + 1}</a>`;
+          }).join('');
+          const calloutsHtml = markers.length
+            ? `<ol class="codex-callouts">${markers.map((m, i) => `<li id="codex-callout-${m.id}" data-codex-marker-id="${m.id}"><span class="codex-callout-num">${i + 1}.</span> ${escapeHtml(String(m.text || ''))}</li>`).join('')}</ol>`
+            : '';
+
+          return `
+            <div class="codex-media-wrap" data-codex-media-key="${key}" title="Click to add callout">
+              <img
+                src="${resolved}"
+                alt="${escapeHtml(String(text || ''))}"
+                title="${escapeHtml(String(title || ''))}"
+                loading="lazy"
+                decoding="async"
+                class="codex-media-img max-w-full rounded border border-cyber-green/20"
+              />
+              <div class="codex-markers-layer">${markerHtml}</div>
+            </div>
+            ${calloutsHtml}
+          `;
       }
-      return `<img src="${href}" alt="${text}" title="${title || ''}" class="max-w-full rounded border border-cyber-green/20" />`;
+
+      if (!href) return '';
+      const key = `url:${href}`;
+      const markers = getAnnotationsForKey(key);
+      const markerHtml = markers.map((m, i) => {
+        const left = Math.max(0, Math.min(100, m.x * 100));
+        const top = Math.max(0, Math.min(100, m.y * 100));
+        return `<a class="codex-marker" data-codex-marker-id="${m.id}" href="#codex-callout-${m.id}" style="left:${left}%;top:${top}%;">${i + 1}</a>`;
+      }).join('');
+      const calloutsHtml = markers.length
+        ? `<ol class="codex-callouts">${markers.map((m, i) => `<li id="codex-callout-${m.id}" data-codex-marker-id="${m.id}"><span class="codex-callout-num">${i + 1}.</span> ${escapeHtml(String(m.text || ''))}</li>`).join('')}</ol>`
+        : '';
+
+      return `
+        <div class="codex-media-wrap" data-codex-media-key="${key}" title="Click to add callout">
+          <img
+            src="${href}"
+            alt="${escapeHtml(String(text || ''))}"
+            title="${escapeHtml(String(title || ''))}"
+            loading="lazy"
+            decoding="async"
+            class="codex-media-img max-w-full rounded border border-cyber-green/20"
+          />
+          <div class="codex-markers-layer">${markerHtml}</div>
+        </div>
+        ${calloutsHtml}
+      `;
   };
 
   renderer.html = (html) => {
-      // Intercept video tags to resolve src if it's an asset ID
-      return String(html).replace(/<video src="([^"]+)"/g, (match: string, src: string) => {
-          if (src && !src.startsWith('http') && !src.startsWith('blob:') && !src.startsWith('data:')) {
-              const resolved = resolvedAssets.value[src];
-              if (!resolved) {
-                  resolveAsset(src);
-                  return `<video src="" data-asset-id="${src}"`;
-              }
-              return `<video src="${resolved}"`;
+      const withResolved = String(html).replace(/<video\s+([^>]*?)src="([^"]+)"/g, (match: string, before: string, src: string) => {
+        if (src && !src.startsWith('http') && !src.startsWith('blob:') && !src.startsWith('data:')) {
+          const resolved = resolvedAssets.value[src];
+          if (!resolved) {
+            resolveAsset(src);
+            return `<video ${before}src="" data-asset-id="${src}"`;
           }
-          return match;
+          return `<video ${before}src="${resolved}" data-asset-id="${src}"`;
+        }
+        return match;
+      });
+
+      // Wrap videos with the same annotation UI as images.
+      return withResolved.replace(/<video\b([^>]*)>([\s\S]*?)<\/video>/g, (match: string, attrs: string, inner: string) => {
+        const assetIdMatch = attrs.match(/data-asset-id="([^"]+)"/);
+        const srcMatch = attrs.match(/src="([^"]*)"/);
+        const assetId = assetIdMatch?.[1] || '';
+        const src = srcMatch?.[1] || '';
+        const key = assetId ? `asset:${assetId}` : (src ? `url:${src}` : '');
+        if (!key) return match;
+
+        const markers = getAnnotationsForKey(key);
+        const markerHtml = markers.map((m, i) => {
+          const left = Math.max(0, Math.min(100, m.x * 100));
+          const top = Math.max(0, Math.min(100, m.y * 100));
+          return `<a class="codex-marker" data-codex-marker-id="${m.id}" href="#codex-callout-${m.id}" style="left:${left}%;top:${top}%;">${i + 1}</a>`;
+        }).join('');
+        const calloutsHtml = markers.length
+          ? `<ol class="codex-callouts">${markers.map((m, i) => `<li id="codex-callout-${m.id}" data-codex-marker-id="${m.id}"><span class="codex-callout-num">${i + 1}.</span> ${escapeHtml(String(m.text || ''))}</li>`).join('')}</ol>`
+          : '';
+
+        // Ensure video has a consistent class for hit-testing.
+        const ensured = `<video${attrs.includes('class=') ? '' : ' class="codex-media-video"'}${attrs}>${inner}</video>`;
+        return `
+          <div class="codex-media-wrap" data-codex-media-key="${key}" title="Click to add callout">
+            ${ensured}
+            <div class="codex-markers-layer">${markerHtml}</div>
+          </div>
+          ${calloutsHtml}
+        `;
       });
   };
 
@@ -155,6 +269,43 @@ function renderMarkdown(text: string) {
 
 function handlePreviewClick(e: MouseEvent) {
   const target = e.target as HTMLElement;
+
+  // Media annotation clicks
+  const mediaWrap = target.closest?.('.codex-media-wrap') as HTMLElement | null;
+  if (mediaWrap) {
+    // Clicking an existing marker should just navigate to its callout.
+    if (target.classList.contains('codex-marker')) return;
+
+    const key = mediaWrap.getAttribute('data-codex-media-key') || '';
+    if (!key || !page.value) return;
+
+    const mediaEl = mediaWrap.querySelector('img, video') as HTMLElement | null;
+    if (!mediaEl) return;
+
+    const rect = mediaEl.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+    const nx = Math.max(0, Math.min(1, x));
+    const ny = Math.max(0, Math.min(1, y));
+
+    const existing = getAnnotationsForKey(key);
+    const defaultText = `Callout ${existing.length + 1}`;
+    const text = prompt('Callout text:', defaultText);
+    if (text === null) return;
+
+    const marker: MediaMarker = {
+      id: crypto.randomUUID(),
+      x: nx,
+      y: ny,
+      text: text.trim() || defaultText
+    };
+
+    setAnnotationsForKey(key, [...existing, marker]);
+    return;
+  }
+
   if (target.classList.contains('wiki-link')) {
     e.preventDefault();
     const pageId = target.getAttribute('data-page-id');
@@ -657,6 +808,63 @@ function triggerInsertLink() {
 </template>
 
 <style>
+.codex-media-wrap {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.codex-media-wrap video {
+  display: block;
+  max-width: 100%;
+  border-radius: 0.25rem;
+}
+
+.codex-markers-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.codex-marker {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background: rgba(0, 255, 157, 0.20);
+  border: 1px solid rgba(0, 255, 157, 0.65);
+  color: #00FF9D;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  text-decoration: none;
+  pointer-events: auto;
+  box-shadow: 0 0 8px rgba(0, 255, 157, 0.15);
+}
+
+.codex-marker:hover {
+  background: rgba(0, 255, 157, 0.30);
+  box-shadow: 0 0 12px rgba(0, 255, 157, 0.25);
+}
+
+.codex-callouts {
+  margin-top: 0.75rem;
+  margin-bottom: 1.25rem;
+  padding-left: 1.25rem;
+}
+
+.codex-callouts li {
+  margin: 0.25rem 0;
+}
+
+.codex-callout-num {
+  color: #00FF9D;
+  font-weight: 700;
+  margin-right: 0.35rem;
+}
+
 .wiki-link {
   color: #7C3AED; /* Cyber Purple */
   text-decoration: none;
