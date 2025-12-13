@@ -19,6 +19,80 @@ export const useProjectStore = defineStore('project', () => {
   const serverStatus = ref<'online' | 'offline' | 'checking'>('checking');
   const saveStatus = ref<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
+  // Debounced revision snapshots for Change Log mode.
+  const revisionTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const REVISION_DEBOUNCE_MS = 3000;
+  const MAX_REVISIONS_PER_PAGE = 30;
+
+  function hashString(input: string): string {
+    // Simple stable non-crypto hash (djb2-ish). Good enough for change detection.
+    let hash = 5381;
+    for (let i = 0; i < input.length; i++) {
+      hash = ((hash << 5) + hash) ^ input.charCodeAt(i);
+    }
+    // unsigned 32-bit
+    return (hash >>> 0).toString(16);
+  }
+
+  function snapshotForPage(page: DocPage) {
+    return {
+      title: page.title,
+      category: page.category,
+      tags: Array.isArray(page.tags) ? [...page.tags] : [],
+      markdownBody: page.markdownBody || '',
+      blocks: Array.isArray(page.blocks) ? page.blocks : [],
+      edges: Array.isArray(page.edges) ? page.edges : []
+    };
+  }
+
+  function shouldCreateRevisionFromUpdates(updates: Partial<DocPage>) {
+    // Only revisions for content changes (not view toggles, counters, etc.)
+    return (
+      'title' in updates ||
+      'category' in updates ||
+      'tags' in updates ||
+      'markdownBody' in updates ||
+      'blocks' in updates ||
+      'edges' in updates
+    );
+  }
+
+  function scheduleRevision(pageId: string) {
+    if (!project.value) return;
+    const page = project.value.pages[pageId];
+    if (!page) return;
+
+    const existing = revisionTimers.get(pageId);
+    if (existing) clearTimeout(existing);
+
+    const t = setTimeout(() => {
+      if (!project.value) return;
+      const p = project.value.pages[pageId];
+      if (!p) return;
+
+      const snapshot = snapshotForPage(p);
+      const hash = hashString(JSON.stringify(snapshot));
+      const meta = (p.metadata || (p.metadata = {} as any));
+      const revisions = Array.isArray(meta.revisions) ? meta.revisions : [];
+      const last = revisions[revisions.length - 1];
+      if (last && last.hash === hash) return;
+
+      const now = new Date().toISOString();
+      const next = {
+        id: crypto.randomUUID(),
+        createdAt: now,
+        hash,
+        snapshot
+      };
+
+      const bounded = [...revisions, next].slice(-MAX_REVISIONS_PER_PAGE);
+      meta.revisions = bounded;
+      meta.updatedAt = meta.updatedAt || now;
+    }, REVISION_DEBOUNCE_MS);
+
+    revisionTimers.set(pageId, t);
+  }
+
   // Initialize
   async function init() {
     try {
@@ -286,6 +360,10 @@ export const useProjectStore = defineStore('project', () => {
     const page = project.value.pages[id];
     if (page) {
       Object.assign(page, updates);
+
+      if (shouldCreateRevisionFromUpdates(updates)) {
+        scheduleRevision(id);
+      }
     }
   }
 

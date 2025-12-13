@@ -115,6 +115,24 @@ export interface Edge {
   targetHandle?: string | null;
 }
 
+export type RunbookItemStatus = 'todo' | 'done' | 'failed';
+
+export interface DocPageSnapshot {
+  title: string;
+  category: string;
+  tags: string[];
+  markdownBody: string;
+  blocks: Block[];
+  edges: Edge[];
+}
+
+export interface DocPageRevision {
+  id: string;
+  createdAt: string;
+  hash: string;
+  snapshot: DocPageSnapshot;
+}
+
 export interface FileSystemNode {
   id: string;
   name: string;
@@ -133,7 +151,7 @@ export interface DocPage {
   blocks: Block[];
   edges: Edge[];
   markdownBody: string; // For Document View
-  viewMode: 'document' | 'canvas' | 'board';
+  viewMode: 'document' | 'canvas' | 'board' | 'runbook' | 'changelog';
   viewCount?: number;
   metadata?: {
     engineVersion?: string;
@@ -163,6 +181,16 @@ export interface DocPage {
         text: string;
       }>;
     }>;
+
+    // Optional revision history for Diff/Change Log mode
+    revisions?: DocPageRevision[];
+
+    // Optional per-page runbook state for Runbook/Ops mode
+    runbook?: {
+      incidentNotes?: string;
+      itemNotes?: Record<string, string>; // key: `${sourceKey}:${index}`
+      itemStatus?: Record<string, Record<number, RunbookItemStatus>>; // sourceKey -> index -> status
+    };
   };
 }
 

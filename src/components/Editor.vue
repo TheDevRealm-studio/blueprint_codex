@@ -4,6 +4,8 @@ import { useProjectStore } from '../stores/project';
 import { storeToRefs } from 'pinia';
 import DocumentView from './views/DocumentView.vue';
 import CanvasView from './views/CanvasView.vue';
+import RunbookView from './views/RunbookView.vue';
+import ChangeLogView from './views/ChangeLogView.vue';
 import GraphView from './views/GraphView.vue';
 import DashboardView from './views/DashboardView.vue';
 import PageProperties from './PageProperties.vue';
@@ -126,6 +128,20 @@ onUnmounted(() => {
           >
             CANVAS
           </button>
+          <button
+            @click="store.updatePage(activePage.id, { viewMode: 'runbook' })"
+            class="px-3 py-1 text-sm rounded transition-all"
+            :class="activePage.viewMode === 'runbook' ? 'bg-cyber-green/20 text-cyber-green shadow-[0_0_5px_rgba(0,255,157,0.2)]' : 'text-cyber-text/50 hover:text-cyber-text'"
+          >
+            RUNBOOK
+          </button>
+          <button
+            @click="store.updatePage(activePage.id, { viewMode: 'changelog' })"
+            class="px-3 py-1 text-sm rounded transition-all"
+            :class="activePage.viewMode === 'changelog' ? 'bg-cyber-green/20 text-cyber-green shadow-[0_0_5px_rgba(0,255,157,0.2)]' : 'text-cyber-text/50 hover:text-cyber-text'"
+          >
+            CHANGELOG
+          </button>
         </div>
         <button
           @click="showProperties = !showProperties"
@@ -142,6 +158,9 @@ onUnmounted(() => {
     <div v-if="activePage" class="flex-1 flex overflow-hidden bg-cyber-dark/50">
       <div class="flex-1 overflow-hidden relative">
         <DocumentView v-if="activePage.viewMode === 'document'" :page-id="activePage.id" />
+        <CanvasView v-else-if="activePage.viewMode === 'canvas'" :page-id="activePage.id" />
+        <RunbookView v-else-if="activePage.viewMode === 'runbook'" :page-id="activePage.id" />
+        <ChangeLogView v-else-if="activePage.viewMode === 'changelog'" :page-id="activePage.id" />
         <CanvasView v-else :page-id="activePage.id" />
       </div>
 
