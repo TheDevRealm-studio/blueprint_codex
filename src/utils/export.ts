@@ -10,8 +10,20 @@ export function exportPageToMarkdown(page: DocPage): string {
   for (const block of page.blocks) {
     switch (block.type) {
       case 'text':
-        md += `${block.content}\n\n`;
+      case 'adr':
+      case 'risk':
+      case 'test':
+      case 'checklist':
+      case 'contract':
+      case 'data-schema':
+      case 'state-machine':
+      case 'performance-budget':
+      case 'timeline':
+      case 'integration': {
+        const text = typeof block.content === 'string' ? block.content : (block.content?.text || '');
+        md += `${text}\n\n`;
         break;
+      }
       case 'steps':
         md += `## Steps\n\n`;
         block.content.forEach((step: string, idx: number) => {
@@ -28,6 +40,12 @@ export function exportPageToMarkdown(page: DocPage): string {
         break;
       case 'blueprint':
         md += `\`\`\`blueprint\n${block.content.blueprintString}\n\`\`\`\n\n`;
+        break;
+      case 'code':
+        md += `\`\`\`${block.content?.language || 'text'}\n${block.content?.code || ''}\n\`\`\`\n\n`;
+        break;
+      case 'asset':
+        md += `[[${block.content?.reference || ''}]]\n\n`;
         break;
     }
   }

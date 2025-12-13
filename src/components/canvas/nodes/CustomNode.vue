@@ -14,12 +14,32 @@ import '@vue-flow/node-resizer/dist/style.css';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/atom-one-dark.css';
 import { marked } from 'marked';
-import { Network, Image, ListOrdered, Link, Code, Package, Youtube, Globe, Type, X, Plus, Edit2, Check, Bold, Italic, Heading1, Heading2, Heading3, List, Sparkles, ChevronDown, ChevronUp, Eye, EyeOff, Wand2, Quote } from 'lucide-vue-next';
+import { Network, Image, ListOrdered, Link, Code, Package, Youtube, Globe, Type, FileText, X, Plus, Edit2, Check, Bold, Italic, Heading1, Heading2, Heading3, List, Sparkles, ChevronDown, ChevronUp, Eye, EyeOff, Wand2, Quote } from 'lucide-vue-next';
 
 const props = defineProps<{
   id: string;
   data: {
-    type: 'region' | 'text' | 'steps' | 'media' | 'blueprint' | 'link' | 'code' | 'asset' | 'youtube' | 'website';
+    type:
+      | 'region'
+      | 'text'
+      | 'steps'
+      | 'media'
+      | 'blueprint'
+      | 'link'
+      | 'code'
+      | 'asset'
+      | 'youtube'
+      | 'website'
+      | 'adr'
+      | 'risk'
+      | 'test'
+      | 'checklist'
+      | 'contract'
+      | 'data-schema'
+      | 'state-machine'
+      | 'performance-budget'
+      | 'timeline'
+      | 'integration';
     content: any;
     label?: string;
     width?: number;
@@ -69,6 +89,17 @@ const headerColor = computed(() => {
     case 'asset': return 'bg-teal-700';
     case 'youtube': return 'bg-red-700';
     case 'website': return 'bg-indigo-700';
+    case 'adr':
+    case 'risk':
+    case 'test':
+    case 'checklist':
+    case 'contract':
+    case 'data-schema':
+    case 'state-machine':
+    case 'performance-budget':
+    case 'timeline':
+    case 'integration':
+      return 'bg-gray-800';
     default: return 'bg-gray-700';
   }
 });
@@ -83,9 +114,54 @@ const icon = computed(() => {
     case 'asset': return Package;
     case 'youtube': return Youtube;
     case 'website': return Globe;
+    case 'adr':
+    case 'risk':
+    case 'test':
+    case 'checklist':
+    case 'contract':
+    case 'data-schema':
+    case 'state-machine':
+    case 'performance-budget':
+    case 'timeline':
+    case 'integration':
+      return FileText;
     default: return Type;
   }
 });
+
+type MarkdownNodeType =
+  | 'text'
+  | 'adr'
+  | 'risk'
+  | 'test'
+  | 'checklist'
+  | 'contract'
+  | 'data-schema'
+  | 'state-machine'
+  | 'performance-budget'
+  | 'timeline'
+  | 'integration';
+
+function isMarkdownNodeType(t: typeof props.data.type): t is MarkdownNodeType {
+  switch (t) {
+    case 'text':
+    case 'adr':
+    case 'risk':
+    case 'test':
+    case 'checklist':
+    case 'contract':
+    case 'data-schema':
+    case 'state-machine':
+    case 'performance-budget':
+    case 'timeline':
+    case 'integration':
+      return true;
+    default:
+      return false;
+  }
+}
+
+const isMarkdownNode = computed(() => isMarkdownNodeType(props.data.type));
 
 const highlightedCode = computed(() => {
   if (props.data.type === 'code' && props.data.content.code) {
@@ -99,19 +175,19 @@ const highlightedCode = computed(() => {
 });
 
 const textContent = computed(() => {
-  if (props.data.type !== 'text') return '';
+  if (!isMarkdownNode.value) return '';
   if (typeof props.data.content === 'string') return props.data.content;
   return props.data.content.text || '';
 });
 
 const textFontSize = computed(() => {
-  if (props.data.type !== 'text') return 14;
+  if (!isMarkdownNode.value) return 14;
   if (typeof props.data.content === 'string') return 14;
   return props.data.content.fontSize || 14;
 });
 
 const renderedMarkdown = computed(() => {
-  if (props.data.type !== 'text') return '';
+  if (!isMarkdownNode.value) return '';
   // @ts-ignore
   return marked.parse(textContent.value);
 });
@@ -598,8 +674,8 @@ function toggleCollapsed() {
 
       <template v-else>
 
-      <!-- Text Block -->
-      <div v-if="data.type === 'text'" class="h-full flex flex-col relative group/text">
+      <!-- Markdown Block (Text + Structured Docs) -->
+      <div v-if="isMarkdownNodeType(data.type)" class="h-full flex flex-col relative group/text">
         <!-- View Mode -->
         <div
             v-if="!isEditingText"

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { useProjectStore } from '../../stores/project';
 import { storage } from '../../services/storage';
 import { aiService } from '../../services/ai';
@@ -9,7 +9,7 @@ import { VueFlow, useVueFlow, type Node, type Edge, type Connection } from '@vue
 import { Background } from '@vue-flow/background';
 import { Controls } from '@vue-flow/controls';
 import CustomNode from '../canvas/nodes/CustomNode.vue';
-import { Type, ListOrdered, Image, Network, Code, Package, Trash2, Unplug, FileText, Sparkles, Loader2 } from 'lucide-vue-next';
+import { Type, ListOrdered, Image, Network, Code, Package, Trash2, Unplug, FileText, Sparkles, Loader2, Search } from 'lucide-vue-next';
 
 // Import Vue Flow styles
 import '@vue-flow/core/dist/style.css';
@@ -131,7 +131,7 @@ function distributeSelected(axis: 'x' | 'y') {
   }
 }
 
-const { onConnect, onNodeDragStop, screenToFlowCoordinate, onNodesChange, onEdgesChange, onNodeContextMenu } = useVueFlow();
+const { onConnect, onNodeDragStop, screenToFlowCoordinate, onNodesChange, onEdgesChange, onNodeContextMenu, onPaneContextMenu } = useVueFlow();
 
 // Context Menu
 const contextMenu = ref({
@@ -150,6 +150,14 @@ onNodeContextMenu((e) => {
     y: event.clientY,
     nodeId: e.node.id
   };
+});
+
+// Right-click on empty canvas/pane => open the command palette.
+onPaneContextMenu((e) => {
+  const evt = (e && typeof e === 'object' && 'event' in (e as any)) ? (e as any).event as MouseEvent : e as unknown as MouseEvent;
+  evt.preventDefault();
+  closeContextMenu();
+  openCanvasPalette();
 });
 
 function deleteNode() {
@@ -406,6 +414,16 @@ function getBlockLabel(block: Block) {
     if (block.type === 'asset') return 'Asset';
     if (block.type === 'youtube') return 'YouTube';
     if (block.type === 'website') return 'Website';
+    if (block.type === 'adr') return 'ADR';
+    if (block.type === 'risk') return 'Risk';
+    if (block.type === 'test') return 'Test';
+    if (block.type === 'checklist') return 'Checklist';
+    if (block.type === 'contract') return 'Contract';
+    if (block.type === 'data-schema') return 'Data Schema';
+    if (block.type === 'state-machine') return 'State Machine';
+    if (block.type === 'performance-budget') return 'Perf Budget';
+    if (block.type === 'timeline') return 'Timeline';
+    if (block.type === 'integration') return 'Integration';
     return 'Note';
 }
 
@@ -854,10 +872,12 @@ function createMediaBlock(assetId: string, x: number, y: number, kindHint?: 'ima
 
 onMounted(() => {
     window.addEventListener('paste', handlePaste);
+  window.addEventListener('keydown', onCanvasGlobalKeydown);
 });
 
 onUnmounted(() => {
     window.removeEventListener('paste', handlePaste);
+  window.removeEventListener('keydown', onCanvasGlobalKeydown);
 });
 
 // --- Toolbar ---
@@ -871,6 +891,121 @@ const availableBlocks = [
   { type: 'code', label: 'Code', icon: Code },
   { type: 'asset', label: 'Asset Ref', icon: Package },
 ];
+
+const structuredDocBlocks = [
+  { type: 'adr', label: 'ADR', icon: FileText },
+  { type: 'risk', label: 'Risk', icon: FileText },
+  { type: 'test', label: 'Test', icon: FileText },
+  { type: 'checklist', label: 'Checklist', icon: FileText },
+  { type: 'contract', label: 'Contract', icon: FileText },
+  { type: 'data-schema', label: 'Data Schema', icon: FileText },
+  { type: 'state-machine', label: 'State Machine', icon: FileText },
+  { type: 'performance-budget', label: 'Perf Budget', icon: FileText },
+  { type: 'timeline', label: 'Timeline', icon: FileText },
+  { type: 'integration', label: 'Integration', icon: FileText },
+];
+
+const canvasPaletteOpen = ref(false);
+const canvasPaletteQuery = ref('');
+const canvasPaletteActiveIndex = ref(0);
+
+const paletteCommands = computed(() => {
+  const all = [
+    ...availableBlocks.map(b => ({ ...b, kind: 'block' as const })),
+    ...structuredDocBlocks.map(b => ({ ...b, kind: 'block' as const })),
+  ];
+
+  const q = canvasPaletteQuery.value.trim().toLowerCase();
+  if (!q) return all;
+
+  return all.filter(c => {
+    const hay = `${c.label} ${c.type}`.toLowerCase();
+    return hay.includes(q);
+  });
+});
+
+function openCanvasPalette() {
+  canvasPaletteOpen.value = true;
+  canvasPaletteQuery.value = '';
+  canvasPaletteActiveIndex.value = 0;
+  nextTick(() => {
+    const el = document.getElementById('canvas-command-palette-input') as HTMLInputElement | null;
+    el?.focus();
+  });
+}
+
+function closeCanvasPalette() {
+  canvasPaletteOpen.value = false;
+}
+
+watch(canvasPaletteQuery, () => {
+  canvasPaletteActiveIndex.value = 0;
+});
+
+function selectPaletteIndex(index: number) {
+  const cmds = paletteCommands.value;
+  const item = cmds[index];
+  if (!item) return;
+  addBlock(item.type as any);
+  closeCanvasPalette();
+}
+
+function onCanvasPaletteKeydown(e: KeyboardEvent) {
+  if (!canvasPaletteOpen.value) return;
+
+  const cmds = paletteCommands.value;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    canvasPaletteActiveIndex.value = Math.min(canvasPaletteActiveIndex.value + 1, Math.max(0, cmds.length - 1));
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    canvasPaletteActiveIndex.value = Math.max(canvasPaletteActiveIndex.value - 1, 0);
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    selectPaletteIndex(canvasPaletteActiveIndex.value);
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    closeCanvasPalette();
+  }
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el) return false;
+  const tag = el.tagName?.toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+  if ((el as any).isContentEditable) return true;
+  return false;
+}
+
+function onCanvasGlobalKeydown(e: KeyboardEvent) {
+  if (isEditableTarget(e.target)) return;
+
+  // Canvas command palette: Ctrl/Cmd + Shift + K
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    if (!canvasPaletteOpen.value) openCanvasPalette();
+    else closeCanvasPalette();
+    return;
+  }
+
+  if (canvasPaletteOpen.value && e.key === 'Escape') {
+    e.preventDefault();
+    closeCanvasPalette();
+  }
+}
+
+function onCanvasContextMenu(e: MouseEvent) {
+  // Right-click on a node should keep the existing node context menu.
+  const target = e.target as HTMLElement | null;
+  if (target?.closest('.vue-flow__node')) return;
+
+  // If right-clicking in overlays/menus, don't re-open.
+  if (target?.closest('[data-codex-no-palette]')) return;
+
+  closeContextMenu();
+  openCanvasPalette();
+}
 
 function addBlock(type: Block['type']) {
   if (!page.value) return;
@@ -897,14 +1032,78 @@ function addBlock(type: Block['type']) {
   store.updatePage(page.value.id, { blocks: newBlocks });
 }
 
+function isMarkdownBlockType(type: Block['type']): boolean {
+  return type === 'text'
+    || type === 'adr'
+    || type === 'risk'
+    || type === 'test'
+    || type === 'checklist'
+    || type === 'contract'
+    || type === 'data-schema'
+    || type === 'state-machine'
+    || type === 'performance-budget'
+    || type === 'timeline'
+    || type === 'integration';
+}
+
 function getDefaultContent(type: Block['type']) {
   switch (type) {
     case 'region': return { title: 'Lane' };
-    case 'text': return 'New text block';
+    case 'text': return { text: 'New text block', fontSize: 14 };
     case 'steps': return ['Step 1', 'Step 2'];
     case 'media': return { label: 'Image', filePath: '', kind: 'image' };
     case 'blueprint': return { blueprintString: '' };
     case 'code': return { code: '// Write your code here...', language: 'cpp' };
+    case 'adr':
+      return {
+        text: `# Decision Record (ADR)\n\n## Context\n- TODO\n\n## Decision\n- TODO\n\n## Consequences\n- TODO\n\n## Links\n- Related assets: [[Blueprint'/Game/...']]\n- Related pages: [[Some Page]]\n`,
+        fontSize: 13
+      };
+    case 'risk':
+      return {
+        text: `# Risk\n\n## Summary\n- TODO\n\n## Impact\n- TODO\n\n## Likelihood\n- TODO\n\n## Mitigation\n- TODO\n\n## Detection / Monitoring\n- TODO\n`,
+        fontSize: 13
+      };
+    case 'test':
+      return {
+        text: `# Test / Verification\n\n## Goal\n- TODO\n\n## Steps\n- [ ] TODO\n\n## Expected Results\n- TODO\n\n## Edge Cases\n- TODO\n`,
+        fontSize: 13
+      };
+    case 'checklist':
+      return {
+        text: `# Checklist\n\n- [ ] TODO\n- [ ] TODO\n- [ ] TODO\n`,
+        fontSize: 13
+      };
+    case 'contract':
+      return {
+        text: `# Contract / Interface\n\n## Inputs\n- TODO\n\n## Outputs\n- TODO\n\n## Invariants\n- TODO\n\n## Failure Modes\n- TODO\n\n## Compatibility\n- TODO\n`,
+        fontSize: 13
+      };
+    case 'data-schema':
+      return {
+        text: `# Data Schema\n\n## Entities\n- TODO\n\n## Fields\n- TODO\n\n## Ownership / Lifetime\n- TODO\n\n## Serialization\n- TODO\n`,
+        fontSize: 13
+      };
+    case 'state-machine':
+      return {
+        text: `# State Machine\n\n## States\n- TODO\n\n## Transitions\n- TODO\n\n## Events / Triggers\n- TODO\n\n## Notes\n- TODO\n`,
+        fontSize: 13
+      };
+    case 'performance-budget':
+      return {
+        text: `# Performance Budget\n\n## Target\n- TODO\n\n## Hot Paths\n- TODO\n\n## Budget\n- Frame time: TODO\n- Memory: TODO\n- Network: TODO\n\n## Measurement\n- TODO\n`,
+        fontSize: 13
+      };
+    case 'timeline':
+      return {
+        text: `# Timeline / Sequence\n\n## Sequence\n1. TODO\n2. TODO\n\n## Notes\n- TODO\n`,
+        fontSize: 13
+      };
+    case 'integration':
+      return {
+        text: `# Integration\n\n## Depends On\n- TODO\n\n## Used By\n- TODO\n\n## Setup\n- TODO\n\n## Gotchas\n- TODO\n`,
+        fontSize: 13
+      };
     default: return {};
   }
 }
@@ -917,13 +1116,24 @@ function getDefaultSize(type: Block['type']) {
       return { width: 280, height: 160 };
     case 'link':
       return { width: 240, height: 120 };
+    case 'adr':
+    case 'risk':
+    case 'test':
+    case 'checklist':
+    case 'contract':
+    case 'data-schema':
+    case 'state-machine':
+    case 'performance-budget':
+    case 'timeline':
+    case 'integration':
+      return { width: 420, height: 320 };
     default:
       return { width: 300, height: 200 };
   }
 }
 
 function getTextFromBlock(block: Block): string {
-  if (block.type === 'text') {
+  if (isMarkdownBlockType(block.type)) {
     if (typeof block.content === 'string') return block.content;
     return String(block.content?.text || '');
   }
@@ -978,11 +1188,22 @@ function blockToMarkdownBullet(block: Block): string {
       const excerpt = code.length > 2000 ? `${code.slice(0, 2000)}\n...` : code;
       return `- Code:\n\n\`\`\`${lang}\n${excerpt}\n\`\`\``;
     }
-    case 'text': {
+    case 'text':
+    case 'adr':
+    case 'risk':
+    case 'test':
+    case 'checklist':
+    case 'contract':
+    case 'data-schema':
+    case 'state-machine':
+    case 'performance-budget':
+    case 'timeline':
+    case 'integration': {
       const text = getTextFromBlock(block).trim();
       const firstLine = text.split(/\r?\n/).find(l => l.trim().length > 0) || '';
       const excerpt = firstLine.length > 140 ? `${firstLine.slice(0, 140)}...` : firstLine;
-      return `- ${excerpt || 'Text'}`;
+      const label = getBlockLabel(block);
+      return `- ${label}: ${excerpt || 'Note'}`;
     }
     default:
       return `- ${block.type}`;
@@ -1082,13 +1303,13 @@ async function generateSystemMapFromSelectedNode() {
   const selected = nodes.value.filter((n: any) => n.selected);
   const seedNode = selected[0];
   if (!seedNode) {
-    alert('Select a Blueprint or Text node first.');
+    alert('Select a node first.');
     return;
   }
 
   const seedBlock = page.value.blocks.find(b => b.id === seedNode.id);
-  if (!seedBlock || (seedBlock.type !== 'blueprint' && seedBlock.type !== 'text' && seedBlock.type !== 'asset')) {
-    alert('System Map works with Text, Blueprint, or Asset nodes.');
+  if (!seedBlock || (seedBlock.type !== 'blueprint' && seedBlock.type !== 'asset' && seedBlock.type !== 'media' && !isMarkdownBlockType(seedBlock.type))) {
+    alert('System Map works with text-like notes, Blueprint, Asset, or Media nodes.');
     return;
   }
 
@@ -1105,6 +1326,10 @@ async function generateSystemMapFromSelectedNode() {
     const goal = prompt('System goal (optional):', '') ?? '';
     const triggers = prompt('Key events/triggers (optional):', '') ?? '';
     const constraints = prompt('Constraints / perf concerns (optional):', '') ?? '';
+
+    const mediaCaption = seedBlock.type === 'media'
+      ? (prompt('Media caption / what does it show? (optional):', '') ?? '')
+      : '';
 
     let promptText = '';
     let data: any = null;
@@ -1197,11 +1422,35 @@ Rules:
         if (!safeArray(data?.keyClasses).length && Array.isArray(analyzerCandidates.classes)) data.keyClasses = analyzerCandidates.classes;
       }
     } else {
-      const seedText = seedBlock.type === 'text'
+      const seedText = isMarkdownBlockType(seedBlock.type)
         ? getTextFromBlock(seedBlock)
-        : String((seedBlock as any).content?.blueprintString || '');
+        : (seedBlock.type === 'blueprint'
+          ? String((seedBlock as any).content?.blueprintString || '')
+          : (seedBlock.type === 'media'
+            ? (() => {
+              const kind = String((seedBlock as any).content?.kind || 'image');
+              const label = String((seedBlock as any).content?.label || '').trim();
+              const filePath = String((seedBlock as any).content?.filePath || '').trim();
 
-      promptText = `You are generating a structured Unreal Engine system map from a seed note/blueprint.
+              const annotations = (page.value?.metadata as any)?.mediaAnnotations?.[filePath];
+              const markers = Array.isArray(annotations?.markers) ? annotations.markers : [];
+              const markerText = markers
+                .map((m: any) => String(m?.text || '').trim())
+                .filter(Boolean)
+                .slice(0, 40);
+
+              return [
+                `Media seed`,
+                `- kind: ${kind}`,
+                `- label: ${label || '(none)'}`,
+                `- filePath: ${filePath || '(none)'}`,
+                mediaCaption ? `- caption: ${mediaCaption}` : `- caption: (none provided)`,
+                markerText.length ? `\nAnnotations:\n${markerText.map((t: string) => `- ${t}`).join('\n')}` : `\nAnnotations:\n- (none)`
+              ].join('\n');
+            })()
+            : ''));
+
+      promptText = `You are generating a structured Unreal Engine system map from a seed note/blueprint/media.
 Return ONLY valid JSON. No markdown.
 
 Seed type: ${seedBlock.type}
@@ -1423,6 +1672,7 @@ For assets: use Unreal reference format like Blueprint'/Game/Path/Name.Name' whe
     @dragover.prevent
     @dragenter.prevent="onDragEnter"
     @dragleave.prevent="onDragLeave"
+    @contextmenu.prevent="onCanvasContextMenu"
   >
     <!-- System Map Thinking Overlay -->
     <div
@@ -1456,7 +1706,7 @@ For assets: use Unreal reference format like Blueprint'/Game/Path/Name.Name' whe
       :default-zoom="1"
       :min-zoom="0.1"
       :max-zoom="4"
-      :multi-selection-key-code="'Control'"
+      :multi-selection-key-code="['Control', 'Meta']"
       :selection-key-code="['Shift']"
       :selection-on-drag="true"
       :delete-key-code="['Delete', 'Backspace']"
@@ -1488,6 +1738,15 @@ For assets: use Unreal reference format like Blueprint'/Game/Path/Name.Name' whe
       </button>
 
       <div class="w-px bg-white/10 mx-1"></div>
+
+      <button
+        @click="openCanvasPalette"
+        class="flex flex-col items-center justify-center w-16 h-14 rounded hover:bg-white/10 transition-colors group"
+        title="Canvas Command Palette (Ctrl/Cmd+Shift+K)"
+      >
+        <Search class="w-5 h-5 mb-1 text-gray-300 group-hover:text-white group-hover:scale-110 transition-all" />
+        <span class="text-[10px] text-gray-400 uppercase font-bold">Palette</span>
+      </button>
 
       <button
         @click="snapToGrid = !snapToGrid"
@@ -1590,9 +1849,54 @@ For assets: use Unreal reference format like Blueprint'/Game/Path/Name.Name' whe
       </button>
     </div>
 
+    <!-- Canvas Command Palette -->
+    <div
+      v-if="canvasPaletteOpen"
+      class="fixed inset-0 z-50"
+      data-codex-no-palette
+      @mousedown.self="closeCanvasPalette"
+    >
+      <div class="absolute inset-0 bg-black/60"></div>
+      <div class="absolute top-20 left-1/2 -translate-x-1/2 w-[720px] max-w-[95vw] bg-ue-panel border border-black rounded-lg shadow-2xl overflow-hidden">
+        <div class="px-3 py-2 border-b border-black flex items-center gap-2">
+          <Search class="w-4 h-4 text-gray-400" />
+          <input
+            id="canvas-command-palette-input"
+            v-model="canvasPaletteQuery"
+            @keydown="onCanvasPaletteKeydown"
+            class="flex-1 bg-transparent outline-none text-sm text-gray-200 placeholder:text-gray-500"
+            placeholder="Add a block… (type to search)"
+          />
+          <div class="text-[10px] text-gray-500 select-none">Esc</div>
+        </div>
+
+        <div class="max-h-[360px] overflow-auto">
+          <button
+            v-for="(cmd, i) in paletteCommands"
+            :key="cmd.type"
+            @click="selectPaletteIndex(i)"
+            @mouseenter="canvasPaletteActiveIndex = i"
+            class="w-full text-left px-3 py-2 flex items-center gap-2 border-b border-white/5 hover:bg-white/5"
+            :class="i === canvasPaletteActiveIndex ? 'bg-white/10' : ''"
+          >
+            <component :is="cmd.icon" class="w-4 h-4 text-gray-300" />
+            <div class="flex-1">
+              <div class="text-sm text-gray-200">{{ cmd.label }}</div>
+              <div class="text-[10px] text-gray-500">{{ cmd.type }}</div>
+            </div>
+          </button>
+
+          <div v-if="paletteCommands.length === 0" class="px-3 py-6 text-sm text-gray-500">
+            No matches.
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Context Menu -->
     <div v-if="contextMenu.visible"
-         class="fixed z-50 bg-gray-800 border border-gray-700 rounded shadow-xl py-1 min-w-[150px]"
+       data-codex-no-palette
+       class="fixed z-50 bg-gray-800 border border-gray-700 rounded shadow-xl py-1 min-w-[150px]"
          :style="{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }">        <button @click.stop="disconnectNode" class="w-full text-left px-3 py-1.5 text-xs text-gray-300 hover:bg-white/5 flex items-center gap-2">
             <Unplug class="w-3 h-3" />
             Disconnect Node

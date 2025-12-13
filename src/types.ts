@@ -6,7 +6,28 @@ export interface Pin {
 
 export interface Block {
   id: string;
-  type: 'text' | 'steps' | 'media' | 'blueprint' | 'blueprint-modal' | 'link' | 'code' | 'asset' | 'youtube' | 'website' | 'region';
+  type:
+    | 'text'
+    | 'steps'
+    | 'media'
+    | 'blueprint'
+    | 'blueprint-modal'
+    | 'link'
+    | 'code'
+    | 'asset'
+    | 'youtube'
+    | 'website'
+    | 'region'
+    | 'adr'
+    | 'risk'
+    | 'test'
+    | 'checklist'
+    | 'contract'
+    | 'data-schema'
+    | 'state-machine'
+    | 'performance-budget'
+    | 'timeline'
+    | 'integration';
   content: any;
   x: number;
   y: number;
