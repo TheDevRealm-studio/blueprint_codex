@@ -128,18 +128,42 @@ class UnrealService {
   }
 
   async analyzeAsset(filePath: string) {
-      try {
-          const response = await fetch('http://localhost:3001/api/analyze-uasset', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ path: filePath })
-          });
-          if (!response.ok) throw new Error('Server error');
-          return await response.json();
-      } catch (e) {
-          console.error('Failed to analyze asset', e);
-          return null;
+    const controller = new AbortController();
+    const timeoutMs = 60_000;
+    const t = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch('http://localhost:3001/api/analyze-uasset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: filePath }),
+        signal: controller.signal
+      });
+
+      if (!response.ok) {
+        let detail = '';
+        try {
+          const j = await response.json();
+          detail = j?.error ? String(j.error) : JSON.stringify(j);
+        } catch {
+          try {
+            detail = await response.text();
+          } catch {
+            detail = '';
+          }
+        }
+        throw new Error(`Analyze failed (${response.status}): ${detail || response.statusText}`);
       }
+
+      return await response.json();
+    } catch (e: any) {
+      const msg = e?.name === 'AbortError'
+        ? `Analyze timed out after ${Math.round(timeoutMs / 1000)}s`
+        : String(e?.message || e || 'Analyze failed');
+      throw new Error(msg);
+    } finally {
+      clearTimeout(t);
+    }
   }
 }
 

@@ -1108,16 +1108,25 @@ async function generateSystemMapFromSelectedNode() {
 
     let promptText = '';
     let data: any = null;
+    let assetAnalysis: any = null;
+    let assetFilePath: string | null = null;
 
     if (seedBlock.type === 'asset') {
       systemMapStage.value = 'Analyzing Unreal asset…';
       const reference = String((seedBlock as any).content?.reference || '').trim();
-      const filePath = reference ? resolveUnrealFilePathFromReference(reference) : null;
-      const analysis = filePath ? await unrealService.analyzeAsset(filePath) : null;
+      assetFilePath = reference ? resolveUnrealFilePathFromReference(reference) : null;
+      try {
+        assetAnalysis = assetFilePath ? await unrealService.analyzeAsset(assetFilePath) : null;
+      } catch {
+        assetAnalysis = null;
+      }
       const parsed = reference ? parseUnrealReference(reference) : null;
-      const analysisSymbols: string[] = Array.isArray(analysis?.symbols)
-        ? analysis.symbols.map((s: any) => String(s)).filter(Boolean)
+      const analysisSymbols: string[] = Array.isArray(assetAnalysis?.symbols)
+        ? assetAnalysis.symbols.map((s: any) => String(s)).filter(Boolean)
         : [];
+
+      const analyzerStats = assetAnalysis?.symbolStats || null;
+      const analyzerCandidates = assetAnalysis?.candidates || null;
 
       promptText = `You are generating a structured Unreal Engine asset system map.
 Return ONLY valid JSON. No markdown.
@@ -1129,7 +1138,10 @@ Parsed reference:
 ${JSON.stringify(parsed, null, 2)}
 
 Asset analysis (heuristic; may be null):
-${JSON.stringify(analysis, null, 2)}
+${JSON.stringify(assetAnalysis, null, 2)}
+
+Analyzer hint (may be null):
+${JSON.stringify({ analyzerStats, analyzerCandidates }, null, 2)}
 
 User notes:
 - goal: ${goal}
@@ -1175,6 +1187,14 @@ Rules:
         data.functions = Array.isArray(data?.functions) ? data.functions : [];
         data.variables = Array.isArray(data?.variables) ? data.variables : [];
         data.keyClasses = Array.isArray(data?.keyClasses) ? data.keyClasses : [];
+      }
+
+      // If AI didn't return much, fall back to analyzer candidates (still non-hallucinated).
+      if (analysisSymbols.length && analyzerCandidates) {
+        const safeArray = (value: any) => (Array.isArray(value) ? value.map((v: any) => String(v)).filter(Boolean) : []);
+        if (!safeArray(data?.functions).length && Array.isArray(analyzerCandidates.functions)) data.functions = analyzerCandidates.functions;
+        if (!safeArray(data?.variables).length && Array.isArray(analyzerCandidates.variables)) data.variables = analyzerCandidates.variables;
+        if (!safeArray(data?.keyClasses).length && Array.isArray(analyzerCandidates.classes)) data.keyClasses = analyzerCandidates.classes;
       }
     } else {
       const seedText = seedBlock.type === 'text'
@@ -1228,7 +1248,7 @@ For assets: use Unreal reference format like Blueprint'/Game/Path/Name.Name' whe
       x,
       y,
       width: seedBlock.type === 'asset' ? 1100 : 980,
-      height: seedBlock.type === 'asset' ? 760 : 640
+      height: seedBlock.type === 'asset' ? 1160 : 640
     } as any);
 
     const mkText = (heading: string, lines: any, dx: number, dy: number, w: number, h: number) => {
@@ -1269,6 +1289,70 @@ For assets: use Unreal reference format like Blueprint'/Game/Path/Name.Name' whe
         height: 140
       } as any);
 
+      // Analyzer summary panel (debug + transparency)
+      const symbolCount = Array.isArray(assetAnalysis?.symbols) ? assetAnalysis.symbols.length : 0;
+      const depCount = Array.isArray(assetAnalysis?.dependencies) ? assetAnalysis.dependencies.length : 0;
+      const fp = assetFilePath ? String(assetFilePath) : '(unresolved file path)';
+      const analyzerText = `## Analyzer Summary\n\n- file: ${fp}\n- symbols: ${symbolCount}\n- dependencies: ${depCount}\n- note: symbol extraction is heuristic; many Blueprint vars/functions are not always recoverable from cooked assets.`;
+      newBlocks.push({
+        id: crypto.randomUUID(),
+        type: 'text',
+        content: { text: analyzerText, fontSize: 12 },
+        x: x + 560,
+        y: y + 210,
+        width: 520,
+        height: 180
+      } as any);
+
+      // Decisions (ADR) linked to this asset
+      const extractGamePath = (ref: string) => {
+        const m = String(ref || '').match(/(\/Game\/[A-Za-z0-9_\/]+(?:\.[A-Za-z0-9_]+)?)/);
+        if (!m || !m[1]) return '';
+        const s = String(m[1]);
+        const lastSlash = s.lastIndexOf('/');
+        const dot = s.indexOf('.', lastSlash);
+        return dot !== -1 ? s.slice(0, dot) : s;
+      };
+
+      const seedRef = String((seedBlock as any).content?.reference || '').trim();
+      const seedPath = extractGamePath(seedRef);
+      const decisionPages = store.project
+        ? Object.values(store.project.pages).filter((p: any) => {
+            const md = p?.metadata;
+            if (md?.decisionType !== 'adr') return false;
+            const linked = Array.isArray(md.decisionLinkedAssets) ? md.decisionLinkedAssets : [];
+            if (seedRef && linked.includes(seedRef)) return true;
+            if (!seedPath) return false;
+            return linked.some((r: any) => extractGamePath(String(r)) === seedPath);
+          })
+        : [];
+
+      const decisionsHeader = `## Decisions (ADR)\n\n- linked: ${decisionPages.length}\n- note: link ADRs via Page Properties on the decision page.`;
+      newBlocks.push({
+        id: crypto.randomUUID(),
+        type: 'text',
+        content: { text: decisionsHeader, fontSize: 12 },
+        x: x + 20,
+        y: y + 910,
+        width: 520,
+        height: 110
+      } as any);
+
+      // Add clickable link blocks for top decisions.
+      let dy = y + 1030;
+      for (const p of decisionPages.slice(0, 6)) {
+        newBlocks.push({
+          id: crypto.randomUUID(),
+          type: 'link',
+          content: { pageId: p.id, title: p.title },
+          x: x + 20,
+          y: dy,
+          width: 520,
+          height: 60
+        } as any);
+        dy += 70;
+      }
+
       mkText('Key Classes', data?.keyClasses, 20, 260, 520, 200);
       mkText('Functions', data?.functions, 560, 220, 520, 200);
       mkText('Variables', data?.variables, 560, 440, 520, 200);
@@ -1291,7 +1375,7 @@ For assets: use Unreal reference format like Blueprint'/Game/Path/Name.Name' whe
 
     const newEdges: BlockEdge[] = [];
     let ax = x + 20;
-    const ay = y + (seedBlock.type === 'asset' ? 920 : 740);
+    const ay = y + (seedBlock.type === 'asset' ? 1040 : 740);
 
     for (const ref of assetRefs) {
       const id = crypto.randomUUID();

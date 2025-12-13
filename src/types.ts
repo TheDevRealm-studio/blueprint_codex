@@ -127,6 +127,12 @@ export interface DocPage {
     unrealAssetPath?: string;
     unrealAssetFilePath?: string;
 
+    // Optional metadata for Decision Records (ADR)
+    decisionType?: 'adr';
+    decisionStatus?: 'proposed' | 'accepted' | 'deprecated';
+    decisionLinkedAssets?: string[]; // Unreal refs like Blueprint'/Game/Path.Asset'
+    decisionLinkedPages?: string[]; // pageIds
+
     // Optional media annotations for DocumentView preview (keyed by assetId or URL)
     mediaAnnotations?: Record<string, {
       markers: Array<{

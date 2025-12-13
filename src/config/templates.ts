@@ -87,5 +87,25 @@ Frame updates.
 ## Bandwidth Considerations
 Estimated bandwidth usage per client: ~X KB/s
 `
+  },
+  {
+    id: 'adr',
+    name: 'Decision Record (ADR)',
+    description: 'Lightweight architecture / gameplay decisions with context and consequences',
+    tags: ['ADR', 'Decision'],
+    markdown: `# Decision Title
+
+## Context
+What problem are we solving? What constraints matter?
+
+## Decision
+What did we decide, and why?
+
+## Consequences
+What changes now? What tradeoffs or follow-ups exist?
+
+## Links
+- Linked assets/pages go here (or add via Properties)
+`
   }
 ];

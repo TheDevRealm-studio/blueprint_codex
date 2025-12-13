@@ -26,6 +26,9 @@ const require = createRequire(import.meta.url);
 // uassetreader is CommonJS
 const { UAsset } = require('uassetreader');
 
+// In-memory cache for expensive analyses (keyed by filePath + mtime + size).
+const uassetAnalysisCache = new Map();
+
 // Configure Multer for file uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -130,27 +133,41 @@ app.get('/api/metadata', async (req, res) => {
 });
 
 function extractLikelySymbols(buffer, opts = {}) {
-  const maxSymbols = typeof opts.maxSymbols === 'number' ? opts.maxSymbols : 120;
-  const minLen = typeof opts.minLen === 'number' ? opts.minLen : 4;
+  const maxSymbols = typeof opts.maxSymbols === 'number' ? opts.maxSymbols : 220;
+  const minLen = typeof opts.minLen === 'number' ? opts.minLen : 3;
 
-  // Collect printable ASCII sequences. This is heuristic and intentionally conservative.
   const symbols = new Set();
-  let current = '';
 
-  const flush = () => {
-    if (current.length >= minLen) {
-      // Identifier-ish token
-      if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(current)) {
-        // Filter out some common UE noise tokens.
-        if (!['None', 'True', 'False', 'NAME_None'].includes(current)) {
-          symbols.add(current);
-        }
-      }
-      // Also keep Script paths (class names) if they appear.
-      if (current.startsWith('/Script/') && current.length <= 200) {
-        symbols.add(current);
-      }
-    }
+  const noise = new Set([
+    'None', 'True', 'False', 'NAME_None',
+    'ByteProperty', 'IntProperty', 'FloatProperty', 'BoolProperty', 'StrProperty',
+    'NameProperty', 'ObjectProperty', 'StructProperty', 'ArrayProperty', 'MapProperty',
+    'DelegateProperty', 'MulticastDelegateProperty'
+  ]);
+
+  const addToken = (token) => {
+    if (!token || token.length < minLen) return;
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(token)) return;
+    if (noise.has(token)) return;
+    symbols.add(token);
+  };
+
+  const ingestString = (s) => {
+    if (!s || s.length < minLen) return;
+
+    // Keep Script paths whole.
+    if (s.startsWith('/Script/') && s.length <= 240) symbols.add(s);
+
+    // Tokenize identifiers out of longer strings like:
+    // "/Script/Engine.Actor:ReceiveBeginPlay" or "MyVarName_12" etc.
+    const tokens = s.split(/[^A-Za-z0-9_]+/g);
+    for (const t of tokens) addToken(t);
+  };
+
+  // 1) Extract ASCII-ish printable runs.
+  let current = '';
+  const flushAscii = () => {
+    if (current.length >= minLen) ingestString(current);
     current = '';
   };
 
@@ -158,23 +175,49 @@ function extractLikelySymbols(buffer, opts = {}) {
     const b = buffer[i];
     if (b >= 0x20 && b <= 0x7e) {
       current += String.fromCharCode(b);
-      if (current.length > 240) flush();
+      if (current.length > 512) flushAscii();
     } else {
-      flush();
+      flushAscii();
       if (symbols.size >= maxSymbols) break;
     }
   }
-  flush();
+  flushAscii();
 
-  // Prefer "interesting" symbols first.
+  // 2) Extract UTF-16LE “wide” strings (very common in UE assets).
+  // Detect runs like: 'A' 0x00 'B' 0x00 ...
+  let wide = '';
+  const flushWide = () => {
+    if (wide.length >= minLen) ingestString(wide);
+    wide = '';
+  };
+
+  for (let i = 0; i + 1 < buffer.length; i += 1) {
+    const lo = buffer[i];
+    const hi = buffer[i + 1];
+    // printable ASCII stored as UTF-16LE => high byte is 0
+    if (hi === 0x00 && lo >= 0x20 && lo <= 0x7e) {
+      wide += String.fromCharCode(lo);
+      if (wide.length > 512) flushWide();
+      i += 1; // consume the pair
+    } else {
+      flushWide();
+    }
+    if (symbols.size >= maxSymbols) break;
+  }
+  flushWide();
+
+  // Prefer “interesting” symbols first.
   const arr = Array.from(symbols);
   const score = (s) => {
-    if (s.startsWith('/Script/')) return 5;
-    if (/^(BP_|ABP_|BPI_|AnimBP_|WBP_)/.test(s)) return 4;
-    if (/(Function|Event|On[A-Z]|Get[A-Z]|Set[A-Z])/.test(s)) return 3;
-    if (/(Component|Interface|Subsystem|Controller|Character)/.test(s)) return 2;
+    if (s.startsWith('/Script/')) return 7;
+    if (/^(BP_|ABP_|BPI_|AnimBP_|WBP_)/.test(s)) return 6;
+    if (/^(On[A-Z]|Receive[A-Z]|Begin[A-Z]|End[A-Z])/.test(s)) return 5;
+    if (/^(Get|Set|Is|Has)[A-Z]/.test(s)) return 4;
+    if (/(Component|Interface|Subsystem|Controller|Character|Pawn)/.test(s)) return 3;
+    if (s.length >= 10) return 2;
     return 1;
   };
+
   arr.sort((a, b) => score(b) - score(a) || a.localeCompare(b));
   return arr.slice(0, maxSymbols);
 }
@@ -198,19 +241,92 @@ app.post('/api/analyze-uasset', async (req, res) => {
       return res.status(413).json({ error: 'File too large to analyze' });
     }
 
+    const cacheKey = `${filePath}::${stat.mtimeMs}::${stat.size}`;
+    const cached = uassetAnalysisCache.get(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const asset = new UAsset(filePath);
     await asset.load();
-    const base = asset.toJSON();
+
+    // Avoid asset.toJSON() here — it's often large/slow and not needed for our UI.
+    const assetType = (typeof asset.getAssetType === 'function') ? asset.getAssetType() : undefined;
+    const unrealVersion = (typeof asset.getUnrealVersion === 'function') ? asset.getUnrealVersion() : undefined;
+
+    // Prefer uassetreader's dependency extraction when available.
+    let dependencies = [];
+    try {
+      if (typeof asset.getAssetDependencies === 'function') {
+        const deps = asset.getAssetDependencies();
+        if (Array.isArray(deps)) {
+          dependencies = deps;
+        } else if (deps && typeof deps === 'object') {
+          // Some implementations may return an object map; flatten string values.
+          const vals = Object.values(deps);
+          dependencies = vals.flatMap(v => (Array.isArray(v) ? v : [v])).filter(x => typeof x === 'string');
+        }
+      }
+    } catch {
+      // Best-effort only; keep dependencies empty if extraction fails.
+      dependencies = [];
+    }
 
     // Best-effort: gather possible symbol names from raw ASCII strings.
     const symbols = asset.FileBuffer ? extractLikelySymbols(asset.FileBuffer) : [];
 
-    res.json({
-      ...base,
+    const scriptPaths = symbols.filter(s => typeof s === 'string' && s.startsWith('/Script/'));
+    const identifiers = symbols.filter(s => typeof s === 'string' && !s.startsWith('/Script/'));
+
+    // Very heuristic buckets. These are NOT guaranteed to be real Blueprint vars/functions,
+    // but help the AI and help debugging.
+    const functionCandidates = identifiers.filter(s =>
+      /^(K2_|Receive[A-Z]|On[A-Z]|Begin[A-Z]|End[A-Z]|Get[A-Z]|Set[A-Z]|Can[A-Z]|Should[A-Z]|Handle[A-Z])/.test(s) ||
+      /(Tick|Update|Init|Initialize|Construct|Deconstruct|Start|Stop|Spawn|Destroy)/.test(s)
+    );
+
+    const variableCandidates = identifiers.filter(s =>
+      !functionCandidates.includes(s) && (
+        /^b[A-Z]/.test(s) ||
+        /^(Max|Min|Num|Count|Index|Size|Length|Speed|Rate|Time|Duration|Health|Damage|Range)/.test(s) ||
+        /^[a-z][A-Za-z0-9_]*$/.test(s)
+      )
+    );
+
+    const classCandidates = [...new Set([
+      ...scriptPaths,
+      ...identifiers.filter(s => /^(BP_|ABP_|BPI_|AnimBP_|WBP_)/.test(s))
+    ])];
+
+    const payload = {
+      assetType,
+      unrealVersion,
+      dependencies,
       symbols,
+      symbolStats: {
+        total: symbols.length,
+        scriptPaths: scriptPaths.length,
+        identifiers: identifiers.length
+      },
+      candidates: {
+        classes: classCandidates.slice(0, 80),
+        functions: functionCandidates.slice(0, 120),
+        variables: variableCandidates.slice(0, 120)
+      },
+      samples: {
+        topSymbols: symbols.slice(0, 60),
+        topScriptPaths: scriptPaths.slice(0, 30),
+        topIdentifiers: identifiers.slice(0, 60)
+      },
+      dependencyStats: {
+        total: Array.isArray(dependencies) ? dependencies.length : 0
+      },
       filePath,
       size: stat.size
-    });
+    };
+
+    uassetAnalysisCache.set(cacheKey, payload);
+    res.json(payload);
   } catch (e) {
     console.error('Failed to analyze uasset', e);
     res.status(500).json({ error: 'Failed to analyze asset' });

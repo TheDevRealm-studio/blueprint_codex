@@ -155,6 +155,8 @@ export const useProjectStore = defineStore('project', () => {
     let initialMarkdown = '# ' + title + '\n\nStart writing...';
     let initialTags: string[] = [];
 
+    const now = new Date().toISOString();
+
     if (template) {
         initialMarkdown = template.markdown.replace('Actor Name', title).replace('Game Mode Name', title).replace('System Name', title);
         initialTags = template.tags || [];
@@ -169,7 +171,19 @@ export const useProjectStore = defineStore('project', () => {
       blocks: [],
       edges: [],
       markdownBody: initialMarkdown,
-      viewMode: 'document'
+      viewMode: 'document',
+      metadata: {
+        createdAt: now,
+        updatedAt: now,
+        ...(templateId === 'adr'
+          ? {
+              decisionType: 'adr' as const,
+              decisionStatus: 'proposed' as const,
+              decisionLinkedAssets: [],
+              decisionLinkedPages: []
+            }
+          : {})
+      }
     };
 
     // Add to flat storage
